@@ -62,6 +62,14 @@ limitations under the License.
     <tag>HEAD</tag>
   </scm>
 
+  <distributionManagement>
+      <repository>
+         <id>${repo.id}</id>
+         <name>Internal Repository</name>
+         <url>${internal.maven.repo}</url>
+      </repository>
+   </distributionManagement>
+
   <modules>
     <module>avatica</module>
     <module>core</module>
