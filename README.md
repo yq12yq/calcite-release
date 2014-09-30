@@ -1,12 +1,14 @@
 [![Build Status](https://travis-ci.org/julianhyde/optiq.svg?branch=master)](https://travis-ci.org/julianhyde/optiq)
 
-# Apache Optiq
+# Apache Calcite
 
-Apache Optiq is a dynamic data management framework.
+Apache Calcite is a dynamic data management framework.
 
-## Getting Optiq
+It was formerly called Optiq.
 
-To run Apache Optiq, you can either
+## Getting Calcite
+
+To run Apache Calcite, you can either
 [download and build from github](doc/HOWTO.md#building-from-git),
 or [download a release](http://www.apache.org/dyn/closer.cgi/incubator/optiq)
 then [build the source code](doc/HOWTO.md#building-from-a-source-distribution).
@@ -17,15 +19,15 @@ with the following Maven coordinates:
 
 ```xml
 <dependency>
-  <groupId>org.apache.optiq</groupId>
-  <artifactId>optiq-core</artifactId>
-  <version>0.9.0-incubating</version>
+  <groupId>org.apache.calcite</groupId>
+  <artifactId>calcite-core</artifactId>
+  <version>0.9.1-incubating</version>
 </dependency>
 ```
 
 ## Example
 
-Optiq makes data anywhere, of any format, look like a database. For
+Calcite makes data anywhere, of any format, look like a database. For
 example, you can execute a complex ANSI-standard SQL statement on
 in-memory collections:
 
@@ -36,7 +38,7 @@ public static class HrSchema {
 }
 
 Class.forName("net.hydromatic.optiq.jdbc.Driver");
-Connection connection = DriverManager.getConnection("jdbc:optiq:");
+Connection connection = DriverManager.getConnection("jdbc:calcite:");
 OptiqConnection optiqConnection =
     connection.unwrap(OptiqConnection.class);
 ReflectiveSchema.create(optiqConnection,
@@ -60,11 +62,11 @@ completely empty until <code>ReflectiveSchema.create</code> registers
 a Java object as a schema and its collection fields <code>emps</code>
 and <code>depts</code> as tables.
 
-Optiq does not want to own data; it does not even have favorite data
+Calcite does not want to own data; it does not even have favorite data
 format. This example used in-memory data sets, and processed them
 using operators such as <code>groupBy</code> and <code>join</code>
 from the linq4j
-library. But Optiq can also process data in other data formats, such
+library. But Calcite can also process data in other data formats, such
 as JDBC. In the first example, replace
 
 ```java
@@ -83,28 +85,28 @@ dataSource.setPassword("");
 JdbcSchema.create(optiqConnection, dataSource, rootSchema, "hr", "");
 ```
 
-and Optiq will execute the same query in JDBC. To the application, the
+and Calcite will execute the same query in JDBC. To the application, the
 data and API are the same, but behind the scenes the implementation is
-very different. Optiq uses optimizer rules
+very different. Calcite uses optimizer rules
 to push the <code>JOIN</code> and <code>GROUP BY</code> operations to
 the source database.
 
-In-memory and JDBC are just two familiar examples. Optiq can handle
+In-memory and JDBC are just two familiar examples. Calcite can handle
 any data source and data format. To add a data source, you need to
-write an adapter that tells Optiq
+write an adapter that tells Calcite
 what collections in the data source it should consider "tables".
 
 For more advanced integration, you can write optimizer
-rules. Optimizer rules allow Optiq to access data of a new format,
+rules. Optimizer rules allow Calcite to access data of a new format,
 allow you to register new operators (such as a better join algorithm),
-and allow Optiq to optimize how queries are translated to
-operators. Optiq will combine your rules and operators with built-in
+and allow Calcite to optimize how queries are translated to
+operators. Calcite will combine your rules and operators with built-in
 rules and operators, apply cost-based optimization, and generate an
 efficient plan.
 
 ### Non-JDBC access
 
-Optiq also allows front-ends other than SQL/JDBC. For example, you can
+Calcite also allows front-ends other than SQL/JDBC. For example, you can
 execute queries in <a href="https://github.com/julianhyde/linq4j">linq4j</a>:
 
 ```java
@@ -125,7 +127,7 @@ for (Customer customer
 ```
 
 Linq4j understands the full query parse tree, and the Linq4j query
-provider for Optiq invokes Optiq as an query optimizer. If the
+provider for Calcite invokes Calcite as an query optimizer. If the
 <code>customer</code> table comes from a JDBC database (based on
 this code fragment, we really can't tell) then the optimal plan
 will be to send the query
@@ -149,7 +151,7 @@ See the <a href="https://github.com/julianhyde/optiq-csv/blob/master/TUTORIAL.md
 for information on using optiq-csv and writing adapters.
 
 See the <a href="doc/HOWTO.md">HOWTO</a> for more information about using other
-adapters, and about using Optiq in general.
+adapters, and about using Calcite in general.
 
 ## Status
 
@@ -166,29 +168,31 @@ For more details, see the <a href="doc/REFERENCE.md">Reference guide</a>.
 
 ### Drivers
 
-* <a href="http://www.hydromatic.net/optiq/optiq-core/apidocs/net/hydromatic/optiq/jdbc/package-summary.html">JDBC driver</a>
+* <a href="http://www.hydromatic.net/calcite/calcite-core/apidocs/net/hydromatic/optiq/jdbc/package-summary.html">JDBC driver</a>
 
 ### Adapters
 
 * <a href="https://github.com/apache/incubator-drill">Apache Drill adapter</a>
 * Cascading adapter (<a href="https://github.com/Cascading/lingual">Lingual</a>)
 * CSV adapter (<a href="https://github.com/julianhyde/optiq-csv">optiq-csv</a>)
-* JDBC adapter (part of <a href="http://www.hydromatic.net/optiq/optiq-core/apidocs/net/hydromatic/optiq/impl/jdbc/package-summary.html">optiq-core</a>)
-* MongoDB adapter (<a href="http://www.hydromatic.net/optiq/optiq-mongodb/apidocs/net/hydromatic/optiq/impl/mongodb/package-summary.html">optiq-mongodb</a>)
-* Spark adapter (<a href="http://www.hydromatic.net/optiq/optiq-spark/apidocs/net/hydromatic/optiq/impl/spark/package-summary.html">optiq-spark</a>)
-* Splunk adapter (<a href="http://www.hydromatic.net/optiq/optiq-splunk/apidocs/net/hydromatic/optiq/impl/splunk/package-summary.html">optiq-splunk</a>)
+* JDBC adapter (part of <a href="http://www.hydromatic.net/calcite/calcite-core/apidocs/net/hydromatic/optiq/impl/jdbc/package-summary.html">calcite-core</a>)
+* MongoDB adapter (<a href="http://www.hydromatic.net/calcite/calcite-mongodb/apidocs/net/hydromatic/optiq/impl/mongodb/package-summary.html">calcite-mongodb</a>)
+* Spark adapter (<a href="http://www.hydromatic.net/calcite/calcite-spark/apidocs/net/hydromatic/optiq/impl/spark/package-summary.html">calcite-spark</a>)
+* Splunk adapter (<a href="http://www.hydromatic.net/calcite/calcite-splunk/apidocs/net/hydromatic/optiq/impl/splunk/package-summary.html">calcite-splunk</a>)
 * Eclipse Memory Analyzer (MAT) adapter (<a href="https://github.com/vlsi/optiq-mat-plugin">optiq-mat-plugin</a>)
 
 ## More information
 
-* License: Apache License, Version 2.0.
-* Author: Julian Hyde
+* License: Apache License, Version 2.0
 * Blog: http://julianhyde.blogspot.com
+* Project page: http://optiq.incubator.apache.org
 * Incubation status page: http://incubator.apache.org/projects/optiq.html
-* Project page: http://www.hydromatic.net/optiq
-* Source code: http://github.com/julianhyde/optiq
+* Source code: http://github.com/apache/incubator-optiq
 * Issues: <a href="https://issues.apache.org/jira/browse/OPTIQ">Apache JIRA</a>
-* Developers list: <a href="mailto:dev@optiq.incubator.apache.org">dev at optiq.incubator.apache.org</a> (<a href="http://mail-archives.apache.org/mod_mbox/incubator-optiq-dev/">archive</a>, <a href="mailto:dev-subscribe@optiq.incubator.apache.org">subscribe</a>)
+* Developers list: <a href="mailto:dev@optiq.incubator.apache.org">dev at optiq.incubator.apache.org</a>
+  (<a href="http://mail-archives.apache.org/mod_mbox/incubator-optiq-dev/">archive</a>,
+  <a href="mailto:dev-subscribe@optiq.incubator.apache.org">subscribe</a>)
+* Twitter: <a href="https://twitter.com/ApacheCalcite">@ApacheCalcite</a>
 * <a href="doc/HOWTO.md">HOWTO</a>
 * <a href="doc/MODEL.md">JSON model</a>
 * <a href="doc/REFERENCE.md">Reference guide</a>
@@ -196,10 +200,10 @@ For more details, see the <a href="doc/REFERENCE.md">Reference guide</a>.
 
 ### Pre-Apache resources
 
-These resources, which we used before Optiq was an Apache incubator
-project, are for reference only.
+These resources, which we used when Calcite was called Optiq and
+before it joined the Apache incubator, are for reference only.
 They may be out of date.
-Please don't post to the mailing list.
+Please don't post or try to subscribe to the mailing list.
 
 * Developers list: <a href="http://groups.google.com/group/optiq-dev">optiq-dev@googlegroups.com</a>
 
@@ -211,10 +215,11 @@ Please don't post to the mailing list.
 * <a href="https://github.com/julianhyde/share/blob/master/slides/optiq-nosql-now-2013.pdf?raw=true">SQL Now!</a> (NoSQL Now! conference, 2013)
 * <a href="https://github.com/julianhyde/share/blob/master/slides/hive-cbo-summit-2014.pdf?raw=true">Cost-based optimization in Hive</a> (<a href="https://www.youtube.com/watch?v=vpG5noIbEFs">video</a>) (Hadoop Summit, 2014)
 * <a href="https://github.com/julianhyde/share/blob/master/slides/dmmq-summit-2014.pdf?raw=true">Discardable, in-memory materialized query for Hadoop</a> (<a href="https://www.youtube.com/watch?v=CziGOa8GXqI">video</a>) (Hadoop Summit, 2014)
+* <a href="https://github.com/julianhyde/share/blob/master/slides/hive-cbo-seattle-2014.pdf?raw=true">Cost-based optimization in Hive 0.14</a> (Seattle, 2014)
 
 ## Disclaimer
 
-Apache Optiq is an effort undergoing incubation at The Apache Software
+Apache Calcite is an effort undergoing incubation at The Apache Software
 Foundation (ASF), sponsored by the Apache Incubator. Incubation is
 required of all newly accepted projects until a further review
 indicates that the infrastructure, communications, and decision making
