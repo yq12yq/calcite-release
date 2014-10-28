@@ -293,17 +293,13 @@ public abstract class RelOptUtil {
               true,
               SqlMinMaxAggFunction.MINMAX_COMPARABLE);
 
-      RelDataType returnType =
-          minFunction.inferReturnType(
-              new AggregateRelBase.AggCallBinding(
-                  typeFactory, minFunction, argTypes, 0));
-
       final AggregateCall aggCall =
-          new AggregateCall(
-              minFunction,
+          AggregateCall.create(minFunction,
               false,
               ImmutableList.of(0),
-              returnType,
+              0,
+              ret,
+              null,
               extraName);
 
       ret =
@@ -372,21 +368,17 @@ public abstract class RelOptUtil {
       final List<RelDataType> argTypes =
           ImmutableList.of(typeFactory.createSqlType(SqlTypeName.BOOLEAN));
 
-      SqlAggFunction minFunction =
+      final SqlAggFunction minFunction =
           new SqlMinMaxAggFunction(argTypes, true,
               SqlMinMaxAggFunction.MINMAX_COMPARABLE);
 
-      RelDataType returnType =
-          minFunction.inferReturnType(
-              new AggregateRelBase.AggCallBinding(
-                  typeFactory, minFunction, argTypes, projectedKeyCount));
-
       final AggregateCall aggCall =
-          new AggregateCall(
-              minFunction,
+          AggregateCall.create(minFunction,
               false,
               ImmutableList.of(projectedKeyCount),
-              returnType,
+              projectedKeyCount,
+              ret,
+              null,
               null);
 
       ret = new AggregateRel(
@@ -445,7 +437,8 @@ public abstract class RelOptUtil {
 
   /**
    * Creates a relational expression which filters according to a given
-   * condition, returning the same fields as its input.
+   * condition, returning the same fields as its input, using the default
+   * filter factory.
    *
    * @param child     Child relational expression
    * @param condition Condition
@@ -477,7 +470,8 @@ public abstract class RelOptUtil {
     return createFilter(child, conditions, RelFactories.DEFAULT_FILTER_FACTORY);
   }
 
-  /** Creates a filter, or returns the original relational expression if the
+  /** Creates a filter using the default factory,
+   * or returns the original relational expression if the
    * condition is trivial. */
   public static RelNode createFilter(RelNode child,
       Iterable<? extends RexNode> conditions,

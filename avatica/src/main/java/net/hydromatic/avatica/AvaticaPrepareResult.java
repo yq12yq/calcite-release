@@ -17,6 +17,7 @@
 package net.hydromatic.avatica;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Result of preparing a statement.
@@ -25,6 +26,7 @@ public interface AvaticaPrepareResult {
   List<ColumnMetaData> getColumnList();
   String getSql();
   List<AvaticaParameter> getParameterList();
+  Map<String, Object> getInternalParameters();
 }
 
 // End AvaticaPrepareResult.java

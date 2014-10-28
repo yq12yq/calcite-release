@@ -14,32 +14,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.hydromatic.optiq.model;
+package net.hydromatic.optiq;
+
+import net.hydromatic.linq4j.Enumerable;
 
 /**
- * Element that describes how a table is a materialization of a query.
- *
- * @see JsonRoot Description of schema elements
+ * Table that can be scanned without creating an intermediate relational
+ * expression.
  */
-public class JsonMaterialization {
-  public String view;
-  public String table;
-  public Object sql;
-
-  public void accept(ModelHandler handler) {
-    handler.visit(this);
-  }
-
-  @Override
-  public String toString() {
-    return "JsonMaterialization(table=" + table + ", view=" + view + ")";
-  }
-
-  /** Returns the SQL query as a string, concatenating a list of lines if
-   * necessary. */
-  public String getSql() {
-    return JsonLattice.toString(sql);
-  }
+public interface ScannableTable extends Table {
+  /** Returns an enumerator over the rows in this Table. Each row is represented
+   * as an array of its column values. */
+  Enumerable<Object[]> scan(DataContext root);
 }
 
-// End JsonMaterialization.java
+// End ScannableTable.java
