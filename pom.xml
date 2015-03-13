@@ -63,6 +63,14 @@ limitations under the License.
     <url>https://github.com/apache/incubator-calcite</url>
     <tag>calcite-1.0.0-incubating</tag>
   </scm>
+  
+  <distributionManagement>
+      <repository>
+         <id>${repo.id}</id>
+         <name>Internal Repository</name>
+         <url>${internal.maven.repo}</url>
+      </repository>
+   </distributionManagement>
 
   <modules>
     <module>avatica</module>
