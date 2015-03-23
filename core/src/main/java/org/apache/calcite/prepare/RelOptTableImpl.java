@@ -16,8 +16,6 @@
  */
 package org.apache.calcite.prepare;
 
-import org.apache.calcite.adapter.enumerable.EnumerableConvention;
-import org.apache.calcite.adapter.enumerable.EnumerableInterpreter;
 import org.apache.calcite.adapter.enumerable.EnumerableTableScan;
 import org.apache.calcite.jdbc.CalciteSchema;
 import org.apache.calcite.linq4j.tree.Expression;
@@ -25,6 +23,9 @@ import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.RelOptSchema;
 import org.apache.calcite.plan.RelOptTable;
 import org.apache.calcite.rel.RelCollation;
+import org.apache.calcite.rel.RelDistribution;
+import org.apache.calcite.rel.RelDistributionTraitDef;
+import org.apache.calcite.rel.RelFieldCollation;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.logical.LogicalTableScan;
 import org.apache.calcite.rel.type.RelDataType;
@@ -35,19 +36,20 @@ import org.apache.calcite.schema.ProjectableFilterableTable;
 import org.apache.calcite.schema.QueryableTable;
 import org.apache.calcite.schema.ScannableTable;
 import org.apache.calcite.schema.Schemas;
+import org.apache.calcite.schema.StreamableTable;
 import org.apache.calcite.schema.Table;
 import org.apache.calcite.schema.TranslatableTable;
 import org.apache.calcite.sql.SqlAccessType;
+import org.apache.calcite.sql.validate.SqlModality;
 import org.apache.calcite.sql.validate.SqlMonotonicity;
 import org.apache.calcite.util.ImmutableBitSet;
 import org.apache.calcite.util.Util;
 
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
-import java.lang.reflect.Type;
-import java.util.Collections;
 import java.util.List;
 
 /**
@@ -77,13 +79,11 @@ public class RelOptTableImpl implements Prepare.PreparingTable {
       Function<Class, Expression> expressionFunction,
       Double rowCount) {
     this.schema = schema;
-    this.rowType = rowType;
+    this.rowType = Preconditions.checkNotNull(rowType);
     this.names = ImmutableList.copyOf(names);
     this.table = table; // may be null
-    this.expressionFunction = expressionFunction;
-    this.rowCount = rowCount;
-    assert expressionFunction != null;
-    assert rowType != null;
+    this.expressionFunction = expressionFunction; // may be null
+    this.rowCount = rowCount; // may be null
   }
 
   public static RelOptTableImpl create(
@@ -100,11 +100,18 @@ public class RelOptTableImpl implements Prepare.PreparingTable {
 
   public static RelOptTableImpl create(RelOptSchema schema, RelDataType rowType,
       final CalciteSchema.TableEntry tableEntry, Double rowCount) {
-    Function<Class, Expression> expressionFunction;
     final Table table = tableEntry.getTable();
+    Function<Class, Expression> expressionFunction =
+        getClassExpressionFunction(tableEntry, table);
+    return new RelOptTableImpl(schema, rowType, tableEntry.path(),
+        table, expressionFunction, rowCount);
+  }
+
+  private static Function<Class, Expression> getClassExpressionFunction(
+      final CalciteSchema.TableEntry tableEntry, final Table table) {
     if (table instanceof QueryableTable) {
       final QueryableTable queryableTable = (QueryableTable) table;
-      expressionFunction = new Function<Class, Expression>() {
+      return new Function<Class, Expression>() {
         public Expression apply(Class clazz) {
           return queryableTable.getExpression(tableEntry.schema.plus(),
               tableEntry.name, clazz);
@@ -113,36 +120,34 @@ public class RelOptTableImpl implements Prepare.PreparingTable {
     } else if (table instanceof ScannableTable
         || table instanceof FilterableTable
         || table instanceof ProjectableFilterableTable) {
-      expressionFunction = new Function<Class, Expression>() {
+      return new Function<Class, Expression>() {
         public Expression apply(Class clazz) {
           return Schemas.tableExpression(tableEntry.schema.plus(),
-              Object[].class, tableEntry.name,
+              Object[].class,
+              tableEntry.name,
               table.getClass());
         }
       };
+    } else if (table instanceof StreamableTable) {
+      return getClassExpressionFunction(tableEntry,
+          ((StreamableTable) table).stream());
     } else {
-      expressionFunction = new Function<Class, Expression>() {
+      return new Function<Class, Expression>() {
         public Expression apply(Class input) {
           throw new UnsupportedOperationException();
         }
       };
     }
-    return new RelOptTableImpl(schema, rowType, tableEntry.path(),
-        table, expressionFunction, rowCount);
   }
 
   public static RelOptTableImpl create(
       RelOptSchema schema,
       RelDataType rowType,
-      TranslatableTable table) {
-    final Function<Class, Expression> expressionFunction =
-        new Function<Class, Expression>() {
-          public Expression apply(Class input) {
-            throw new UnsupportedOperationException();
-          }
-        };
+      Table table) {
+    assert table instanceof TranslatableTable
+        || table instanceof ScannableTable;
     return new RelOptTableImpl(schema, rowType, ImmutableList.<String>of(),
-        table, expressionFunction, null);
+        table, null, null);
   }
 
   public <T> T unwrap(Class<T> clazz) {
@@ -161,6 +166,9 @@ public class RelOptTableImpl implements Prepare.PreparingTable {
   }
 
   public Expression getExpression(Class clazz) {
+    if (expressionFunction == null) {
+      return null;
+    }
     return expressionFunction.apply(clazz);
   }
 
@@ -197,52 +205,57 @@ public class RelOptTableImpl implements Prepare.PreparingTable {
     if (table instanceof TranslatableTable) {
       return ((TranslatableTable) table).toRel(context, this);
     }
+    final RelOptCluster cluster = context.getCluster();
     if (CalcitePrepareImpl.ENABLE_BINDABLE) {
-      return new LogicalTableScan(context.getCluster(), this);
+      return LogicalTableScan.create(cluster, this);
+    }
+    if (CalcitePrepareImpl.ENABLE_ENUMERABLE
+        && table instanceof QueryableTable) {
+      return EnumerableTableScan.create(cluster, this);
+    }
+    if (table instanceof ScannableTable
+        || table instanceof FilterableTable
+        || table instanceof ProjectableFilterableTable) {
+      return LogicalTableScan.create(cluster, this);
     }
     if (CalcitePrepareImpl.ENABLE_ENUMERABLE) {
-      RelOptCluster cluster = context.getCluster();
-      Class elementType = deduceElementType();
-      final RelNode scan = new EnumerableTableScan(cluster,
-          cluster.traitSetOf(EnumerableConvention.INSTANCE), this, elementType);
-      if (table instanceof FilterableTable
-          || table instanceof ProjectableFilterableTable) {
-        return new EnumerableInterpreter(cluster, scan.getTraitSet(),
-            scan, 1d);
-      }
-      return scan;
+      return EnumerableTableScan.create(cluster, this);
     }
     throw new AssertionError();
   }
 
-  private Class deduceElementType() {
-    if (table instanceof QueryableTable) {
-      final QueryableTable queryableTable = (QueryableTable) table;
-      final Type type = queryableTable.getElementType();
-      if (type instanceof Class) {
-        return (Class) type;
-      } else {
-        return Object[].class;
-      }
-    } else if (table instanceof ScannableTable
-        || table instanceof FilterableTable
-        || table instanceof ProjectableFilterableTable) {
-      return Object[].class;
-    } else {
-      return Object.class;
+  public List<RelCollation> getCollationList() {
+    if (table != null) {
+      return table.getStatistic().getCollations();
     }
+    return ImmutableList.of();
   }
 
-  public List<RelCollation> getCollationList() {
-    return Collections.emptyList();
+  public RelDistribution getDistribution() {
+    if (table != null) {
+      return table.getStatistic().getDistribution();
+    }
+    return RelDistributionTraitDef.INSTANCE.getDefault();
   }
 
   public boolean isKey(ImmutableBitSet columns) {
-    return table.getStatistic().isKey(columns);
+    if (table != null) {
+      return table.getStatistic().isKey(columns);
+    }
+    return false;
   }
 
   public RelDataType getRowType() {
     return rowType;
+  }
+
+  public boolean supportsModality(SqlModality modality) {
+    switch (modality) {
+    case STREAM:
+      return table instanceof StreamableTable;
+    default:
+      return !(table instanceof StreamableTable);
+    }
   }
 
   public List<String> getQualifiedName() {
@@ -250,7 +263,37 @@ public class RelOptTableImpl implements Prepare.PreparingTable {
   }
 
   public SqlMonotonicity getMonotonicity(String columnName) {
+    final int i = rowType.getFieldNames().indexOf(columnName);
+    if (i >= 0) {
+      for (RelCollation collation : table.getStatistic().getCollations()) {
+        final RelFieldCollation fieldCollation =
+            collation.getFieldCollations().get(0);
+        if (fieldCollation.getFieldIndex() == i) {
+          return monotonicity(fieldCollation.direction);
+        }
+      }
+    }
     return SqlMonotonicity.NOT_MONOTONIC;
+  }
+
+  /** Converts a {@link org.apache.calcite.rel.RelFieldCollation.Direction}
+   * value to a {@link org.apache.calcite.sql.validate.SqlMonotonicity}. */
+  private static SqlMonotonicity
+  monotonicity(RelFieldCollation.Direction direction) {
+    switch (direction) {
+    case ASCENDING:
+      return SqlMonotonicity.INCREASING;
+    case STRICTLY_ASCENDING:
+      return SqlMonotonicity.STRICTLY_INCREASING;
+    case DESCENDING:
+      return SqlMonotonicity.DECREASING;
+    case STRICTLY_DESCENDING:
+      return SqlMonotonicity.STRICTLY_DECREASING;
+    case CLUSTERED:
+      return SqlMonotonicity.MONOTONIC;
+    default:
+      throw new AssertionError("unknown: " + direction);
+    }
   }
 
   public SqlAccessType getAllowedAccess() {

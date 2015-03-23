@@ -662,6 +662,23 @@ public class RelOptRulesTest extends RelOptTestBase {
         "select * from (values (1,2)) where 1 + 2 > 3 + CAST(NULL AS INTEGER)");
   }
 
+  /** Test case for
+   * <a href="https://issues.apache.org/jira/browse/CALCITE-566">[CALCITE-566],
+   * ReduceExpressionsRule requires planner to have an Executor</a>. */
+  @Test public void testReduceConstantsRequiresExecutor() throws Exception {
+    HepProgram program = new HepProgramBuilder()
+        .addRuleInstance(ReduceExpressionsRule.FILTER_INSTANCE)
+        .build();
+
+    // Remove the executor
+    tester.convertSqlToRel("values 1").getCluster().getPlanner()
+        .setExecutor(null);
+
+    // Rule should not fire, but there should be no NPE
+    checkPlanning(program,
+        "select * from (values (1,2)) where 1 + 2 > 3 + CAST(NULL AS INTEGER)");
+  }
+
   @Test public void testAlreadyFalseEliminatesFilter() throws Exception {
     HepProgram program = new HepProgramBuilder()
         .addRuleInstance(ReduceExpressionsRule.FILTER_INSTANCE)
@@ -776,7 +793,7 @@ public class RelOptRulesTest extends RelOptTestBase {
                     typeFactory.createSqlType(SqlTypeName.INTEGER);
                 for (int i = 0; i < 10; i++) {
                   String t = String.valueOf((char) ('A' + i));
-                  MockTable table = MockTable.create(this, schema, t);
+                  MockTable table = MockTable.create(this, schema, t, false);
                   table.addColumn(t, intType);
                   registerTable(table);
                 }

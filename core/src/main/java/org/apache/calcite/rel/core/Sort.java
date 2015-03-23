@@ -17,7 +17,6 @@
 package org.apache.calcite.rel.core;
 
 import org.apache.calcite.linq4j.Ord;
-import org.apache.calcite.plan.Convention;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.RelOptCost;
 import org.apache.calcite.plan.RelOptPlanner;
@@ -27,7 +26,6 @@ import org.apache.calcite.rel.RelCollationTraitDef;
 import org.apache.calcite.rel.RelFieldCollation;
 import org.apache.calcite.rel.RelInput;
 import org.apache.calcite.rel.RelNode;
-import org.apache.calcite.rel.RelShuttle;
 import org.apache.calcite.rel.RelWriter;
 import org.apache.calcite.rel.SingleRel;
 import org.apache.calcite.rel.metadata.RelMetadataQuery;
@@ -44,10 +42,10 @@ import java.util.List;
  * Relational expression that imposes a particular sort order on its input
  * without otherwise changing its content.
  */
-public class Sort extends SingleRel {
+public abstract class Sort extends SingleRel {
   //~ Instance fields --------------------------------------------------------
 
-  protected final RelCollation collation;
+  public final RelCollation collation;
   protected final ImmutableList<RexNode> fieldExps;
   public final RexNode offset;
   public final RexNode fetch;
@@ -119,32 +117,17 @@ public class Sort extends SingleRel {
 
   //~ Methods ----------------------------------------------------------------
 
-  @Override public Sort copy(RelTraitSet traitSet, List<RelNode> inputs) {
-    return copy(traitSet, sole(inputs), collation);
+  @Override public final Sort copy(RelTraitSet traitSet, List<RelNode> inputs) {
+    return copy(traitSet, sole(inputs), collation, offset, fetch);
   }
 
-  public Sort copy(
-      RelTraitSet traitSet,
-      RelNode newInput,
+  public final Sort copy(RelTraitSet traitSet, RelNode newInput,
       RelCollation newCollation) {
     return copy(traitSet, newInput, newCollation, offset, fetch);
   }
 
-  public Sort copy(
-      RelTraitSet traitSet,
-      RelNode newInput,
-      RelCollation newCollation,
-      RexNode offset,
-      RexNode fetch) {
-    assert traitSet.containsIfApplicable(Convention.NONE);
-    return new Sort(
-        getCluster(),
-        traitSet,
-        newInput,
-        newCollation,
-        offset,
-        fetch);
-  }
+  public abstract Sort copy(RelTraitSet traitSet, RelNode newInput,
+      RelCollation newCollation, RexNode offset, RexNode fetch);
 
   @Override public RelOptCost computeSelfCost(RelOptPlanner planner) {
     // Higher cost if rows are wider discourages pushing a project through a
@@ -153,10 +136,6 @@ public class Sort extends SingleRel {
     double bytesPerRow = getRowType().getFieldCount() * 4;
     return planner.getCostFactory().makeCost(
         Util.nLogN(rowCount) * bytesPerRow, rowCount, 0);
-  }
-
-  @Override public RelNode accept(RelShuttle shuttle) {
-    return shuttle.visit(this);
   }
 
   @Override public List<RexNode> getChildExps() {
@@ -181,12 +160,12 @@ public class Sort extends SingleRel {
    * Returns the array of {@link RelFieldCollation}s asked for by the sort
    * specification, from most significant to least significant.
    *
-   * <p>See also {@link #getCollationList()}, inherited from {@link RelNode},
+   * <p>See also {@link RelMetadataQuery#collations(RelNode)},
    * which lists all known collations. For example,
    * <code>ORDER BY time_id</code> might also be sorted by
    * <code>the_year, the_month</code> because of a known monotonicity
-   * constraint among the columns. {@code getCollations} would return
-   * <code>[time_id]</code> and {@code getCollationList} would return
+   * constraint among the columns. {@code getCollation} would return
+   * <code>[time_id]</code> and {@code collations} would return
    * <code>[ [time_id], [the_year, the_month] ]</code>.</p>
    */
   public RelCollation getCollation() {
@@ -194,7 +173,6 @@ public class Sort extends SingleRel {
   }
 
   @Override public List<RelCollation> getCollationList() {
-    // TODO: include each prefix of the collation, e.g [[x, y], [x], []]
     return Collections.singletonList(getCollation());
   }
 

@@ -22,6 +22,7 @@ import org.apache.calcite.plan.RelOptRule;
 import org.apache.calcite.plan.RelOptRuleCall;
 import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.rel.core.EquiJoin;
 import org.apache.calcite.rel.core.Join;
 import org.apache.calcite.rel.core.JoinInfo;
 import org.apache.calcite.rel.logical.LogicalCalc;
@@ -152,7 +153,6 @@ public abstract class ReduceExpressionsRule extends RelOptRule {
           // If the expression is a IS [NOT] NULL on a non-nullable
           // column, then we can either remove the filter or replace
           // it with an Empty.
-          SqlOperator op = rexCall.getOperator();
           boolean alwaysTrue;
           switch (rexCall.getKind()) {
           case IS_NULL:
@@ -195,13 +195,8 @@ public abstract class ReduceExpressionsRule extends RelOptRule {
               Lists.newArrayList(project.getProjects());
           if (reduceExpressions(project, expList, predicates)) {
             call.transformTo(
-                new LogicalProject(
-                    project.getCluster(),
-                    project.getTraitSet(),
-                    project.getInput(),
-                    expList,
-                    project.getRowType(),
-                    LogicalProject.Flags.BOXED));
+                LogicalProject.create(project.getInput(), expList,
+                    project.getRowType()));
 
             // New plan is absolutely better than old plan.
             call.getPlanner().setImportance(project, 0.0);
@@ -304,12 +299,7 @@ public abstract class ReduceExpressionsRule extends RelOptRule {
                   program.getOutputRowType().getFieldNames().get(k++));
             }
             call.transformTo(
-                new LogicalCalc(
-                    calc.getCluster(),
-                    calc.getTraitSet(),
-                    calc.getInput(),
-                    builder.getProgram(),
-                    calc.getCollationList()));
+                LogicalCalc.create(calc.getInput(), builder.getProgram()));
 
             // New plan is absolutely better than old plan.
             call.getPlanner().setImportance(calc, 0.0);
@@ -395,6 +385,17 @@ public abstract class ReduceExpressionsRule extends RelOptRule {
     // Compute the values they reduce to.
     RelOptPlanner.Executor executor =
         rel.getCluster().getPlanner().getExecutor();
+    if (executor == null) {
+      // Cannot reduce expressions: caller has not set an executor in their
+      // environment. Caller should execute something like the following before
+      // invoking the planner:
+      //
+      // final RexExecutorImpl executor =
+      //   new RexExecutorImpl(Schemas.createDataContext(null));
+      // rootRel.getCluster().getPlanner().setExecutor(executor);
+      return false;
+    }
+
     final List<RexNode> reducedValues = Lists.newArrayList();
     executor.reduce(rexBuilder, constExps2, reducedValues);
 

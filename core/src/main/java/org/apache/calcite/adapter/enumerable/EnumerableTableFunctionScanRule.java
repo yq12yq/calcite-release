@@ -29,7 +29,7 @@ import org.apache.calcite.rel.logical.LogicalTableFunctionScan;
 public class EnumerableTableFunctionScanRule extends ConverterRule {
   public EnumerableTableFunctionScanRule() {
     super(LogicalTableFunctionScan.class, Convention.NONE,
-        EnumerableConvention.INSTANCE, "EnumerableTableFunctionRule");
+        EnumerableConvention.INSTANCE, "EnumerableTableFunctionScanRule");
   }
 
   @Override public RelNode convert(RelNode rel) {

@@ -33,6 +33,9 @@ public class EnumerableRules {
   public static final RelOptRule ENUMERABLE_JOIN_RULE =
       new EnumerableJoinRule();
 
+  public static final RelOptRule ENUMERABLE_MERGE_JOIN_RULE =
+      new EnumerableMergeJoinRule();
+
   public static final RelOptRule ENUMERABLE_SEMI_JOIN_RULE =
       new EnumerableSemiJoinRule();
 
@@ -89,6 +92,9 @@ public class EnumerableRules {
 
   public static final EnumerableProjectToCalcRule
   ENUMERABLE_PROJECT_TO_CALC_RULE = new EnumerableProjectToCalcRule();
+
+  public static final EnumerableTableScanRule ENUMERABLE_TABLE_SCAN_RULE =
+      new EnumerableTableScanRule();
 
   public static final EnumerableTableFunctionScanRule
   ENUMERABLE_TABLE_FUNCTION_SCAN_RULE = new EnumerableTableFunctionScanRule();

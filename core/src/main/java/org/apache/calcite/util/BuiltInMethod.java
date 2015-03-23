@@ -43,6 +43,9 @@ import org.apache.calcite.linq4j.function.Predicate2;
 import org.apache.calcite.linq4j.tree.FunctionExpression;
 import org.apache.calcite.linq4j.tree.Primitive;
 import org.apache.calcite.linq4j.tree.Types;
+import org.apache.calcite.rel.metadata.BuiltInMetadata.Memory;
+import org.apache.calcite.rel.metadata.BuiltInMetadata.Parallelism;
+import org.apache.calcite.rel.metadata.BuiltInMetadata.Size;
 import org.apache.calcite.rel.metadata.Metadata;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.runtime.ArrayBindable;
@@ -55,6 +58,7 @@ import org.apache.calcite.runtime.SortedMultiMap;
 import org.apache.calcite.runtime.SqlFunctions;
 import org.apache.calcite.schema.FilterableTable;
 import org.apache.calcite.schema.ModifiableTable;
+import org.apache.calcite.schema.ProjectableFilterableTable;
 import org.apache.calcite.schema.QueryableTable;
 import org.apache.calcite.schema.ScannableTable;
 import org.apache.calcite.schema.Schema;
@@ -81,10 +85,12 @@ import java.util.Map;
 import java.util.TimeZone;
 import javax.sql.DataSource;
 
+import static org.apache.calcite.rel.metadata.BuiltInMetadata.Collation;
 import static org.apache.calcite.rel.metadata.BuiltInMetadata.ColumnOrigin;
 import static org.apache.calcite.rel.metadata.BuiltInMetadata.ColumnUniqueness;
 import static org.apache.calcite.rel.metadata.BuiltInMetadata.CumulativeCost;
 import static org.apache.calcite.rel.metadata.BuiltInMetadata.DistinctRowCount;
+import static org.apache.calcite.rel.metadata.BuiltInMetadata.Distribution;
 import static org.apache.calcite.rel.metadata.BuiltInMetadata.ExplainVisibility;
 import static org.apache.calcite.rel.metadata.BuiltInMetadata.NonCumulativeCost;
 import static org.apache.calcite.rel.metadata.BuiltInMetadata.PercentageOriginalRows;
@@ -108,10 +114,12 @@ public enum BuiltInMethod {
   SCHEMA_GET_SUB_SCHEMA(Schema.class, "getSubSchema", String.class),
   SCHEMA_GET_TABLE(Schema.class, "getTable", String.class),
   SCHEMA_PLUS_UNWRAP(SchemaPlus.class, "unwrap", Class.class),
-  SCHEMAS_ENUMERABLE(Schemas.class, "enumerable", ScannableTable.class,
-      DataContext.class),
-  SCHEMAS_ENUMERABLE2(Schemas.class, "enumerable", FilterableTable.class,
-      DataContext.class),
+  SCHEMAS_ENUMERABLE_SCANNABLE(Schemas.class, "enumerable",
+      ScannableTable.class, DataContext.class),
+  SCHEMAS_ENUMERABLE_FILTERABLE(Schemas.class, "enumerable",
+      FilterableTable.class, DataContext.class),
+  SCHEMAS_ENUMERABLE_PROJECTABLE_FILTERABLE(Schemas.class, "enumerable",
+      ProjectableFilterableTable.class, DataContext.class),
   SCHEMAS_QUERYABLE(Schemas.class, "queryable", DataContext.class,
       SchemaPlus.class, Class.class, String.class),
   REFLECTIVE_SCHEMA_GET_TARGET(ReflectiveSchema.class, "getTarget"),
@@ -124,6 +132,9 @@ public enum BuiltInMethod {
       String.class, Function1.class),
   JOIN(ExtendedEnumerable.class, "join", Enumerable.class, Function1.class,
       Function1.class, Function2.class),
+  MERGE_JOIN(Enumerables.class, "mergeJoin", Enumerable.class, Enumerable.class,
+      Function1.class, Function1.class, Function2.class, boolean.class,
+      boolean.class),
   SLICE0(Enumerables.class, "slice0", Enumerable.class),
   SEMI_JOIN(Enumerables.class, "semiJoin", Enumerable.class, Enumerable.class,
       Function1.class, Function1.class),
@@ -164,6 +175,7 @@ public enum BuiltInMethod {
   LIST_N(FlatLists.class, "of", Object[].class),
   LIST2(FlatLists.class, "of", Object.class, Object.class),
   LIST3(FlatLists.class, "of", Object.class, Object.class, Object.class),
+  COMPARABLE_EMPTY_LIST(FlatLists.class, "COMPARABLE_EMPTY_LIST", true),
   IDENTITY_COMPARER(Functions.class, "identityComparer"),
   IDENTITY_SELECTOR(Functions.class, "identitySelector"),
   AS_ENUMERABLE(Linq4j.class, "asEnumerable", Object[].class),
@@ -222,6 +234,8 @@ public enum BuiltInMethod {
       int.class),
   CHAR_LENGTH(SqlFunctions.class, "charLength", String.class),
   STRING_CONCAT(SqlFunctions.class, "concat", String.class, String.class),
+  FLOOR(SqlFunctions.class, "floor", int.class, int.class),
+  CEIL(SqlFunctions.class, "ceil", int.class, int.class),
   OVERLAY(SqlFunctions.class, "overlay", String.class, String.class, int.class),
   OVERLAY3(SqlFunctions.class, "overlay", String.class, String.class, int.class,
       int.class),
@@ -252,6 +266,14 @@ public enum BuiltInMethod {
   INTERVAL_DAY_TIME_TO_STRING(DateTimeUtils.class, "intervalDayTimeToString",
       long.class, TimeUnitRange.class, int.class),
   UNIX_DATE_EXTRACT(DateTimeUtils.class, "unixDateExtract",
+      TimeUnitRange.class, long.class),
+  UNIX_DATE_FLOOR(DateTimeUtils.class, "unixDateFloor",
+      TimeUnitRange.class, int.class),
+  UNIX_DATE_CEIL(DateTimeUtils.class, "unixDateCeil",
+      TimeUnitRange.class, int.class),
+  UNIX_TIMESTAMP_FLOOR(DateTimeUtils.class, "unixTimestampFloor",
+      TimeUnitRange.class, long.class),
+  UNIX_TIMESTAMP_CEIL(DateTimeUtils.class, "unixTimestampCeil",
       TimeUnitRange.class, long.class),
   CURRENT_TIMESTAMP(SqlFunctions.class, "currentTimestamp", DataContext.class),
   CURRENT_TIME(SqlFunctions.class, "currentTime", DataContext.class),
@@ -284,8 +306,18 @@ public enum BuiltInMethod {
   ELEMENT(SqlFunctions.class, "element", List.class),
   SELECTIVITY(Selectivity.class, "getSelectivity", RexNode.class),
   UNIQUE_KEYS(UniqueKeys.class, "getUniqueKeys", boolean.class),
+  AVERAGE_ROW_SIZE(Size.class, "averageRowSize"),
+  AVERAGE_COLUMN_SIZES(Size.class, "averageColumnSizes"),
+  IS_PHASE_TRANSITION(Parallelism.class, "isPhaseTransition"),
+  SPLIT_COUNT(Parallelism.class, "splitCount"),
+  MEMORY(Memory.class, "memory"),
+  CUMULATIVE_MEMORY_WITHIN_PHASE(Memory.class, "cumulativeMemoryWithinPhase"),
+  CUMULATIVE_MEMORY_WITHIN_PHASE_SPLIT(Memory.class,
+      "cumulativeMemoryWithinPhaseSplit"),
   COLUMN_UNIQUENESS(ColumnUniqueness.class, "areColumnsUnique",
       ImmutableBitSet.class, boolean.class),
+  COLLATIONS(Collation.class, "collations"),
+  DISTRIBUTION(Distribution.class, "distribution"),
   ROW_COUNT(RowCount.class, "getRowCount"),
   DISTINCT_ROW_COUNT(DistinctRowCount.class, "getDistinctRowCount",
       ImmutableBitSet.class, RexNode.class),
@@ -323,22 +355,26 @@ public enum BuiltInMethod {
     MAP = builder.build();
   }
 
+  private BuiltInMethod(Method method, Constructor constructor, Field field) {
+    this.method = method;
+    this.constructor = constructor;
+    this.field = field;
+  }
+
+  /** Defines a method. */
   BuiltInMethod(Class clazz, String methodName, Class... argumentTypes) {
-    this.method = Types.lookupMethod(clazz, methodName, argumentTypes);
-    this.constructor = null;
-    this.field = null;
+    this(Types.lookupMethod(clazz, methodName, argumentTypes), null, null);
   }
 
+  /** Defines a constructor. */
   BuiltInMethod(Class clazz, Class... argumentTypes) {
-    this.method = null;
-    this.constructor = Types.lookupConstructor(clazz, argumentTypes);
-    this.field = null;
+    this(null, Types.lookupConstructor(clazz, argumentTypes), null);
   }
 
+  /** Defines a field. */
   BuiltInMethod(Class clazz, String fieldName, boolean dummy) {
-    this.method = null;
-    this.constructor = null;
-    this.field = Types.lookupField(clazz, fieldName);
+    this(null, null, Types.lookupField(clazz, fieldName));
+    assert dummy : "dummy value for method overloading must be true";
   }
 }
 

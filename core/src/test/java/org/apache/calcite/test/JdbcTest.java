@@ -54,6 +54,7 @@ import org.apache.calcite.rel.logical.LogicalTableModify;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rel.type.RelProtoDataType;
+import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.runtime.Hook;
 import org.apache.calcite.runtime.SqlFunctions;
 import org.apache.calcite.schema.ModifiableTable;
@@ -78,6 +79,7 @@ import org.apache.calcite.sql.advise.SqlAdvisorGetHintsFunction;
 import org.apache.calcite.sql.parser.SqlParserUtil;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.util.Bug;
+import org.apache.calcite.util.Litmus;
 import org.apache.calcite.util.Pair;
 import org.apache.calcite.util.Util;
 
@@ -156,6 +158,9 @@ public class JdbcTest {
 
   public static final Method VIEW_METHOD =
       Types.lookupMethod(JdbcTest.class, "view", String.class);
+
+  public static final Method STR_METHOD =
+      Types.lookupMethod(JdbcTest.class, "str", Object.class, Object.class);
 
   public static final Method STRING_UNION_METHOD =
       Types.lookupMethod(
@@ -457,6 +462,32 @@ public class JdbcTest {
         equalTo("N=1\n"
             + "N=3\n"
             + "N=10\n"));
+    connection.close();
+  }
+
+  /** Table macro that takes a MAP as a parameter.
+   *
+   * <p>Test case for
+   * <a href="https://issues.apache.org/jira/browse/CALCITE-588">CALCITE-588</a>,
+   * "Allow TableMacro to consume Maps and Collections". */
+  @Test public void testTableMacroMap()
+      throws SQLException, ClassNotFoundException {
+    Connection connection =
+        DriverManager.getConnection("jdbc:calcite:");
+    CalciteConnection calciteConnection =
+        connection.unwrap(CalciteConnection.class);
+    SchemaPlus rootSchema = calciteConnection.getRootSchema();
+    SchemaPlus schema = rootSchema.add("s", new AbstractSchema());
+    final TableMacro tableMacro = TableMacroImpl.create(STR_METHOD);
+    schema.add("Str", tableMacro);
+    ResultSet resultSet = connection.createStatement().executeQuery("select *\n"
+        + "from table(\"s\".\"Str\"(MAP['a', 1, 'baz', 2],\n"
+        + "                         ARRAY[3, 4, CAST(null AS INTEGER)])) as t(n)");
+    // The call to "View('(10), (2)')" expands to 'values (1), (3), (10), (20)'.
+    assertThat(CalciteAssert.toString(resultSet),
+        equalTo("N={'a'=1, 'baz'=2}\n"
+            + "N=[3, 4, null]\n"));
+    connection.close();
   }
 
   /** Tests a JDBC connection that provides a model that contains a table
@@ -2542,6 +2573,26 @@ public class JdbcTest {
         .returns("EMPNO=1; DESC=SameName\n");
   }
 
+  /** Tests a merge-join. */
+  @Test public void testMergeJoin() {
+    CalciteAssert.that()
+        .with(CalciteAssert.Config.REGULAR)
+        .query("select \"emps\".\"empid\",\n"
+            + " \"depts\".\"deptno\", \"depts\".\"name\"\n"
+            + "from \"hr\".\"emps\"\n"
+            + " join \"hr\".\"depts\" using (\"deptno\")")
+        .explainContains(""
+            + "EnumerableCalc(expr#0..3=[{inputs}], empid=[$t2], deptno=[$t0], name=[$t1])\n"
+            + "  EnumerableJoin(condition=[=($0, $3)], joinType=[inner])\n"
+            + "    EnumerableCalc(expr#0..3=[{inputs}], proj#0..1=[{exprs}])\n"
+            + "      EnumerableTableScan(table=[[hr, depts]])\n"
+            + "    EnumerableCalc(expr#0..4=[{inputs}], proj#0..1=[{exprs}])\n"
+            + "      EnumerableTableScan(table=[[hr, emps]])")
+        .returns("empid=100; deptno=10; name=Sales\n"
+            + "empid=150; deptno=10; name=Sales\n"
+            + "empid=110; deptno=10; name=Sales\n");
+  }
+
   /** Tests a cartesian product aka cross join. */
   @Test public void testCartesianJoin() {
     CalciteAssert.hr()
@@ -2870,9 +2921,8 @@ public class JdbcTest {
             + "where \"store_id\" < 10\n"
             + "order by 1 fetch first 5 rows only")
         .explainContains("PLAN=EnumerableLimit(fetch=[5])\n"
-            + "  EnumerableSort(sort0=[$0], dir0=[ASC])\n"
-            + "    EnumerableCalc(expr#0..23=[{inputs}], expr#24=[10], expr#25=[<($t0, $t24)], store_id=[$t0], grocery_sqft=[$t16], $condition=[$t25])\n"
-            + "      EnumerableTableScan(table=[[foodmart2, store]])\n")
+            + "  EnumerableCalc(expr#0..23=[{inputs}], expr#24=[10], expr#25=[<($t0, $t24)], store_id=[$t0], grocery_sqft=[$t16], $condition=[$t25])\n"
+            + "    EnumerableTableScan(table=[[foodmart2, store]])\n")
         .returns("store_id=0; grocery_sqft=null\n"
             + "store_id=1; grocery_sqft=17475\n"
             + "store_id=2; grocery_sqft=22271\n"
@@ -3098,6 +3148,36 @@ public class JdbcTest {
         .returnsCount(10);
   }
 
+  /** ORDER BY on a sort-key does not require a sort. */
+  @Test public void testOrderOnSortedTable() throws IOException {
+    // The ArrayTable "store" is sorted by "store_id".
+    CalciteAssert.that()
+        .with(CalciteAssert.Config.FOODMART_CLONE)
+        .query("select \"day\"\n"
+            + "from \"days\"\n"
+            + "order by \"day\"")
+        .returns("day=1\n"
+            + "day=2\n"
+            + "day=3\n"
+            + "day=4\n"
+            + "day=5\n"
+            + "day=6\n"
+            + "day=7\n");
+  }
+
+  /** ORDER BY on a sort-key does not require a sort. */
+  @Test public void testOrderSorted() throws IOException {
+    // The ArrayTable "store" is sorted by "store_id".
+    CalciteAssert.that()
+        .with(CalciteAssert.Config.FOODMART_CLONE)
+        .query("select \"store_id\"\n"
+            + "from \"store\"\n"
+            + "order by \"store_id\" limit 3")
+        .returns("store_id=0\n"
+            + "store_id=1\n"
+            + "store_id=2\n");
+  }
+
   @Test public void testWhereNot() throws IOException {
     CalciteAssert.that()
         .with(CalciteAssert.Config.FOODMART_CLONE)
@@ -3187,8 +3267,8 @@ public class JdbcTest {
         .with(CalciteAssert.Config.FOODMART_CLONE)
         .query("select * from \"time_by_day\"\n"
             + "order by \"time_id\"")
-        .explainContains("PLAN=EnumerableSort(sort0=[$0], dir0=[ASC])\n"
-            + "  EnumerableTableScan(table=[[foodmart2, time_by_day]])\n\n");
+        .explainContains(
+            "PLAN=EnumerableTableScan(table=[[foodmart2, time_by_day]])\n");
   }
 
   /** Tests sorting by a column that is already sorted. */
@@ -4372,6 +4452,10 @@ public class JdbcTest {
 
   @Test public void testRunSequence() throws Exception {
     checkRun("sql/sequence.oq");
+  }
+
+  @Test public void testRunSort() throws Exception {
+    checkRun("sql/sort.oq");
   }
 
   @Test public void testRunSubquery() throws Exception {
@@ -6102,6 +6186,21 @@ public class JdbcTest {
         }, "values (1), (3), " + s, ImmutableList.<String>of());
   }
 
+  public static TranslatableTable str(Object o, Object p) {
+    assertThat(RexLiteral.validConstant(o, Litmus.THROW), is(true));
+    assertThat(RexLiteral.validConstant(p, Litmus.THROW), is(true));
+    return new ViewTable(Object.class,
+        new RelProtoDataType() {
+          public RelDataType apply(RelDataTypeFactory typeFactory) {
+            return typeFactory.builder().add("c", SqlTypeName.VARCHAR, 100)
+                .build();
+          }
+        },
+        "values " + SqlDialect.CALCITE.quoteStringLiteral(o.toString())
+            + ", " + SqlDialect.CALCITE.quoteStringLiteral(p.toString()),
+        ImmutableList.<String>of());
+  }
+
   public static class Employee {
     public final int empid;
     public final int deptno;
@@ -6256,8 +6355,7 @@ public class JdbcTest {
         TableModify.Operation operation,
         List<String> updateColumnList,
         boolean flattened) {
-      return new LogicalTableModify(
-          cluster, table, catalogReader, child, operation,
+      return LogicalTableModify.create(table, catalogReader, child, operation,
           updateColumnList, flattened);
     }
   }

@@ -18,11 +18,16 @@ package org.apache.calcite.rel.metadata;
 
 import org.apache.calcite.plan.RelOptCost;
 import org.apache.calcite.plan.RelOptPredicateList;
+import org.apache.calcite.rel.RelCollation;
+import org.apache.calcite.rel.RelDistribution;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.SqlExplainLevel;
 import org.apache.calcite.util.ImmutableBitSet;
 
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -83,6 +88,28 @@ public abstract class BuiltInMetadata {
      * null if not enough information is available to make that determination
      */
     Boolean areColumnsUnique(ImmutableBitSet columns, boolean ignoreNulls);
+  }
+
+  /** Metadata about which columns are sorted. */
+  public interface Collation extends Metadata {
+    /** Determines which columns are sorted. */
+    ImmutableList<RelCollation> collations();
+  }
+
+  /** Metadata about how a relational expression is distributed.
+   *
+   * <p>If you are an operator consuming a relational expression, which subset
+   * of the rows are you seeing? You might be seeing all of them (BROADCAST
+   * or SINGLETON), only those whose key column values have a particular hash
+   * code (HASH) or only those whose column values have particular values or
+   * ranges of values (RANGE).
+   *
+   * <p>When a relational expression is partitioned, it is often partitioned
+   * among nodes, but it may be partitioned among threads running on the same
+   * node. */
+  public interface Distribution extends Metadata {
+    /** Determines how the rows are distributed. */
+    RelDistribution distribution();
   }
 
   /** Metadata about the number of rows returned by a relational expression. */
@@ -146,6 +173,34 @@ public abstract class BuiltInMetadata {
      * estimate can be determined
      */
     Double getPopulationSize(ImmutableBitSet groupKey);
+  }
+
+  /** Metadata about the size of rows and columns. */
+  public interface Size extends Metadata {
+    /**
+     * Determines the average size (in bytes) of a row from this relational
+     * expression.
+     *
+     * @return average size of a row, in bytes, or null if not known
+     */
+    Double averageRowSize();
+
+    /**
+     * Determines the average size (in bytes) of a value of a column in this
+     * relational expression.
+     *
+     * <p>Null values are included (presumably they occupy close to 0 bytes).
+     *
+     * <p>It is left to the caller to decide whether the size is the compressed
+     * size, the uncompressed size, or memory allocation when the value is
+     * wrapped in an object in the Java heap. The uncompressed size is probably
+     * a good compromise.
+     *
+     * @return an immutable list containing, for each column, the average size
+     * of a column value, in bytes. Each value or the entire list may be null if
+     * the metadata is not available
+     */
+    List<Double> averageColumnSizes();
   }
 
   /** Metadata about the origins of columns. */
@@ -221,9 +276,71 @@ public abstract class BuiltInMetadata {
     RelOptPredicateList getPredicates();
   }
 
+  /** Metadata about the degree of parallelism of a relational expression, and
+   * how its operators are assigned to processes with independent resource
+   * pools. */
+  public interface Parallelism extends Metadata {
+    /** Returns whether each physical operator implementing this relational
+     * expression belongs to a different process than its inputs.
+     *
+     * <p>A collection of operators processing all of the splits of a particular
+     * stage in the query pipeline is called a "phase". A phase starts with
+     * a leaf node such as a {@link org.apache.calcite.rel.core.TableScan},
+     * or with a phase-change node such as an
+     * {@link org.apache.calcite.rel.core.Exchange}. Hadoop's shuffle operator
+     * (a form of sort-exchange) causes data to be sent across the network. */
+    Boolean isPhaseTransition();
+
+    /** Returns the number of distinct splits of the data.
+     *
+     * <p>Note that splits must be distinct. For broadcast, where each copy is
+     * the same, returns 1.
+     *
+     * <p>Thus the split count is the <em>proportion</em> of the data seen by
+     * each operator instance.
+     */
+    Integer splitCount();
+  }
+
+  /** Metadata about the memory use of an operator. */
+  public interface Memory extends Metadata {
+    /** Returns the expected amount of memory, in bytes, required by a physical
+     * operator implementing this relational expression, across all splits.
+     *
+     * <p>How much memory is used depends very much on the algorithm; for
+     * example, an implementation of
+     * {@link org.apache.calcite.rel.core.Aggregate} that loads all data into a
+     * hash table requires approximately {@code rowCount * averageRowSize}
+     * bytes, whereas an implementation that assumes that the input is sorted
+     * requires only {@code averageRowSize} bytes to maintain a single
+     * accumulator for each aggregate function.
+     */
+    Double memory();
+
+    /** Returns the cumulative amount of memory, in bytes, required by the
+     * physical operator implementing this relational expression, and all other
+     * operators within the same phase, across all splits.
+     *
+     * @see org.apache.calcite.rel.metadata.BuiltInMetadata.Parallelism#splitCount()
+     */
+    Double cumulativeMemoryWithinPhase();
+
+    /** Returns the expected cumulative amount of memory, in bytes, required by
+     * the physical operator implementing this relational expression, and all
+     * operators within the same phase, within each split.
+     *
+     * <p>Basic formula:
+     *
+     * <blockquote>cumulativeMemoryWithinPhaseSplit
+     *     = cumulativeMemoryWithinPhase / Parallelism.splitCount</blockquote>
+     */
+    Double cumulativeMemoryWithinPhaseSplit();
+  }
+
   /** The built-in forms of metadata. */
   interface All extends Selectivity, UniqueKeys, RowCount, DistinctRowCount,
-      PercentageOriginalRows, ColumnUniqueness, ColumnOrigin, Predicates {
+      PercentageOriginalRows, ColumnUniqueness, ColumnOrigin, Predicates,
+      Collation, Distribution, Size, Parallelism, Memory {
   }
 }
 

@@ -39,7 +39,6 @@ import org.apache.calcite.schema.impl.AbstractSchema;
 import org.apache.calcite.schema.impl.AbstractTable;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.calcite.sql.type.SqlTypeName;
-import org.apache.calcite.util.Bug;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -127,7 +126,7 @@ public class ScannableTableTest {
     resultSet.close();
     // Only 2 rows came out of the table. If the value is 4, it means that the
     // planner did not pass the filter down.
-    assertThat(buf.toString(), equalTo("returnCount=2"));
+    assertThat(buf.toString(), equalTo("returnCount=2, filter=4"));
     buf.setLength(0);
 
     // Now with an "uncooperative" filterable table that refuses to accept
@@ -161,7 +160,7 @@ public class ScannableTableTest {
     resultSet.close();
     // Only 2 rows came out of the table. If the value is 4, it means that the
     // planner did not pass the filter down.
-    assertThat(buf.toString(), equalTo("returnCount=2"));
+    assertThat(buf.toString(), equalTo("returnCount=2, filter=4"));
     buf.setLength(0);
 
     // Now with an "uncooperative" filterable table that refuses to accept
@@ -195,7 +194,8 @@ public class ScannableTableTest {
     assertThat(CalciteAssert.toString(resultSet),
         equalTo("k=1940; j=John\nk=1942; j=Paul\n"));
     resultSet.close();
-    assertThat(buf.toString(), equalTo("returnCount=2, projects=[2, 1]"));
+    assertThat(buf.toString(),
+        equalTo("returnCount=2, filter=4, projects=[2, 1]"));
     buf.setLength(0);
 
     // Filter on one of the projected columns.
@@ -206,7 +206,7 @@ public class ScannableTableTest {
         equalTo("i=4; k=1942\n"
             + "i=6; k=1943\n"));
     assertThat(buf.toString(),
-        equalTo("returnCount=4"));
+        equalTo("returnCount=4, projects=[0, 2]"));
     buf.setLength(0);
   }
 
@@ -232,9 +232,7 @@ public class ScannableTableTest {
     assertThat(CalciteAssert.toString(resultSet), equalTo("k=1940\nk=1942\n"));
     resultSet.close();
     assertThat(buf.toString(),
-        equalTo(Bug.CALCITE_445_FIXED
-                ? "returnCount=4, projects=[0, 2]"
-                : "returnCount=4"));
+        equalTo("returnCount=4, projects=[2, 0]"));
     buf.setLength(0);
   }
 
@@ -277,9 +275,7 @@ public class ScannableTableTest {
     ResultSet resultSet = statement.executeQuery(
         "select \"k\" from \"s\".\"beatles2\" where \"k\" > 1941");
     assertThat(buf.toString(),
-        equalTo(Bug.CALCITE_445_FIXED
-                ? "returnCount=4, projects=[2]"
-                : "returnCount=4"));
+        equalTo("returnCount=4, projects=[2]"));
     assertThat(CalciteAssert.toString(resultSet), equalTo("k=1942\nk=1943\n"));
   }
 
@@ -467,6 +463,9 @@ public class ScannableTableTest {
       public void close() {
         current = null;
         buf.append("returnCount=").append(returnCount);
+        if (filter != null) {
+          buf.append(", filter=").append(filter);
+        }
         if (projects != null) {
           buf.append(", projects=").append(Arrays.toString(projects));
         }

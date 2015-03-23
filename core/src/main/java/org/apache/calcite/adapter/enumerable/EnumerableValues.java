@@ -23,14 +23,21 @@ import org.apache.calcite.linq4j.tree.Expressions;
 import org.apache.calcite.linq4j.tree.Primitive;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.RelTraitSet;
+import org.apache.calcite.rel.RelCollation;
+import org.apache.calcite.rel.RelCollationTraitDef;
+import org.apache.calcite.rel.RelDistribution;
+import org.apache.calcite.rel.RelDistributionTraitDef;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Values;
+import org.apache.calcite.rel.metadata.RelMdCollation;
+import org.apache.calcite.rel.metadata.RelMdDistribution;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeField;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.util.BuiltInMethod;
 import org.apache.calcite.util.Pair;
 
+import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 
 import java.lang.reflect.Type;
@@ -40,15 +47,36 @@ import java.util.List;
 /** Implementation of {@link org.apache.calcite.rel.core.Values} in
  * {@link org.apache.calcite.adapter.enumerable.EnumerableConvention enumerable calling convention}. */
 public class EnumerableValues extends Values implements EnumerableRel {
-  EnumerableValues(RelOptCluster cluster, RelDataType rowType,
+  /** Creates an EnumerableValues. */
+  private EnumerableValues(RelOptCluster cluster, RelDataType rowType,
       ImmutableList<ImmutableList<RexLiteral>> tuples, RelTraitSet traitSet) {
     super(cluster, rowType, tuples, traitSet);
   }
 
+  /** Creates an EnumerableValues. */
+  public static EnumerableValues create(RelOptCluster cluster,
+      final RelDataType rowType,
+      final ImmutableList<ImmutableList<RexLiteral>> tuples) {
+    final RelTraitSet traitSet =
+        cluster.traitSetOf(EnumerableConvention.INSTANCE)
+            .replaceIfs(RelCollationTraitDef.INSTANCE,
+                new Supplier<List<RelCollation>>() {
+                  public List<RelCollation> get() {
+                    return RelMdCollation.values(rowType, tuples);
+                  }
+                })
+            .replaceIf(RelDistributionTraitDef.INSTANCE,
+                new Supplier<RelDistribution>() {
+                  public RelDistribution get() {
+                    return RelMdDistribution.values(rowType, tuples);
+                  }
+                });
+    return new EnumerableValues(cluster, rowType, tuples, traitSet);
+  }
+
   @Override public RelNode copy(RelTraitSet traitSet, List<RelNode> inputs) {
     assert inputs.isEmpty();
-    return new EnumerableValues(
-        getCluster(), rowType, tuples, traitSet);
+    return create(getCluster(), rowType, tuples);
   }
 
   public Result implement(EnumerableRelImplementor implementor, Prefer pref) {

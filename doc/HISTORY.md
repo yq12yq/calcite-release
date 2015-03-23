@@ -3,6 +3,110 @@
 For a full list of releases, see
 <a href="https://github.com/apache/incubator-calcite/releases">github</a>.
 
+## <a href="https://github.com/apache/incubator-calcite/releases/tag/calcite-1.1.0-incubating">1.1.0-incubating</a> / 2015-03-13
+
+This Calcite release makes it possible to exploit physical properties
+of relational expressions to produce more efficient plans, introducing
+collation and distribution as traits, `Exchange` relational operator,
+and several new forms of metadata.
+
+We add experimental support for streaming SQL.
+
+This release drops support for JDK 1.6; Calcite now requires 1.7 or
+later.
+
+We have introduced static `create` methods for many sub-classes of
+`RelNode`. We strongly suggest that you use these rather than
+calling constructors directly.
+
+New features
+* SQL
+  * [<a href="https://issues.apache.org/jira/browse/CALCITE-602">CALCITE-602</a>]
+    Streaming queries (experimental)
+  * [<a href="https://issues.apache.org/jira/browse/CALCITE-588">CALCITE-588</a>]
+    Allow `TableMacro` to consume maps and collections
+  * [<a href="https://issues.apache.org/jira/browse/CALCITE-583">CALCITE-583</a>]
+    Operator `||` mishandles `ANY` type (Sean Hsuan-Yi Chu)
+* Planner rule improvements
+  * [<a href="https://issues.apache.org/jira/browse/CALCITE-445">CALCITE-445</a>]
+    Pull up filters rejected by a `ProjectableFilterableTable`
+  * [<a href="https://issues.apache.org/jira/browse/CALCITE-600">CALCITE-600</a>]
+    Use `SetOpFactory` in rules containing `Union` operator (Jesus
+    Camacho Rodriguez)
+  * [<a href="https://issues.apache.org/jira/browse/CALCITE-603">CALCITE-603</a>]
+    Metadata providers for size, memory, parallelism
+    * [<a href="https://issues.apache.org/jira/browse/CALCITE-607">CALCITE-607</a>]
+      Change visibility of constructor in metadata providers for size,
+      memory, parallelism (Jesus Camacho Rodriguez)
+    * [<a href="https://issues.apache.org/jira/browse/CALCITE-608">CALCITE-608</a>]
+      Exception is thrown when `RelMdDistribution` for `Project`
+      operator is called (Jesus Camacho Rodriguez)
+* Collation and distribution as traits
+  * [<a href="https://issues.apache.org/jira/browse/CALCITE-88">CALCITE-88</a>]
+    Add collation as a trait and a kind of `RelNode` metadata
+  * [<a href="https://issues.apache.org/jira/browse/CALCITE-569">CALCITE-569</a>]
+    `ArrayIndexOutOfBoundsException` when deducing collation (Aman Sinha)
+  * [<a href="https://issues.apache.org/jira/browse/CALCITE-581">CALCITE-581</a>]
+    Add `LogicalSort` relational expression, and make `Sort` abstract
+  * [<a href="https://issues.apache.org/jira/browse/CALCITE-526">CALCITE-526</a>]
+    Add `EnumerableMergeJoin`, which exploits sorted inputs
+  * [<a href="https://issues.apache.org/jira/browse/CALCITE-71">CALCITE-71</a>]
+    Provide a way to declare that tables are sorted
+  * [<a href="https://issues.apache.org/jira/browse/CALCITE-576">CALCITE-576</a>]
+    Make `RelCollation` trait and `AbstractRelNode.getCollationList` consistent
+  * [<a href="https://issues.apache.org/jira/browse/CALCITE-254">CALCITE-254</a>]
+    Propagate `RelCollation` on aliased columns in `JoinRule`
+  * [<a href="https://issues.apache.org/jira/browse/CALCITE-569">CALCITE-569</a>]
+    `ArrayIndexOutOfBoundsException` when deducing collation
+  * [<a href="https://issues.apache.org/jira/browse/CALCITE-594">CALCITE-594</a>]
+    Add `RelDistribution` trait and `Exchange` relational expression
+
+API changes
+* Many sub-classes of `RelNode` now have a static `create` method
+  which automatically sets up traits such as collation and
+  distribution. The constructors are not marked deprecated, but we
+  strongly suggest that you use the `create` method if it exists.
+* [<a href="https://issues.apache.org/jira/browse/CALCITE-591">CALCITE-591</a>]
+  Drop support for Java 1.6 (and JDBC 4.0)
+* [<a href="https://issues.apache.org/jira/browse/CALCITE-587">CALCITE-587</a>]
+  Upgrade `jetty-server` to 9.2.7.v20150116 and port avatica-server `HttpServer`
+  (Trevor Hartman)
+* [<a href="https://issues.apache.org/jira/browse/CALCITE-577">CALCITE-577</a>]
+  Revert temporary API changes introduced in
+  [<a href="https://issues.apache.org/jira/browse/CALCITE-575">CALCITE-575</a>]
+* Add means to create `Context` instances by wrapping objects and by chaining
+  contexts
+* [<a href="https://issues.apache.org/jira/browse/CALCITE-599">CALCITE-599</a>]
+  `EquiJoin` in wrong package (Jesus Camacho Rodriguez)
+* [<a href="https://issues.apache.org/jira/browse/CALCITE-573">CALCITE-573</a>]
+  Use user-given names in `RelOptUtil.createProject` and `createRename`
+* [<a href="https://issues.apache.org/jira/browse/CALCITE-572">CALCITE-572</a>]
+  Remove `Project.flags` (methods are deprecated, to be removed before 2.0)
+
+Bug-fixes and internal changes
+* Remove the `LICENSE` file of calcite-example-csv (the former
+  optiq-csv) and move its history into main history
+* [<a href="https://issues.apache.org/jira/browse/CALCITE-615">CALCITE-615</a>]
+  AvaticaParameter should be Jackson serializable (Nick Dimiduk)
+* [<a href="https://issues.apache.org/jira/browse/CALCITE-612">CALCITE-612</a>]
+  Update AvaticaStatement to handle cancelled queries (Parth Chandra)
+* [<a href="https://issues.apache.org/jira/browse/CALCITE-605">CALCITE-605</a>]
+  Reduce dependency on third-party maven repositories
+* [<a href="https://issues.apache.org/jira/browse/CALCITE-611">CALCITE-611</a>]
+  Method `setAggChildKeys` should take into account indicator columns of
+  `Aggregate` operator (Jesus Camacho Rodriguez)
+* [<a href="https://issues.apache.org/jira/browse/CALCITE-566">CALCITE-566</a>]
+  `ReduceExpressionsRule` requires planner to have an `Executor`
+* Refactor `TableScanNode.create` method
+* [<a href="https://issues.apache.org/jira/browse/CALCITE-593">CALCITE-593</a>]
+  Validator in `Frameworks` should expand identifiers (Jinfeng Ni)
+* Australian time-zones changed in `tzdata2014f`, Java 1.8.0_31
+* [<a href="https://issues.apache.org/jira/browse/CALCITE-580">CALCITE-580</a>]
+  Average aggregation on an `Integer` column throws `ClassCastException`
+* In Travis, ask Surefire to print results to screen
+* [<a href="https://issues.apache.org/jira/browse/CALCITE-586">CALCITE-586</a>]
+  Prevent JSON serialization of `Signature.internalParameters`
+
 ## <a href="https://github.com/apache/incubator-calcite/releases/tag/calcite-1.0.0-incubating">1.0.0-incubating</a> / 2015-01-31
 
 Calcite's first major release.
@@ -1095,6 +1199,66 @@ Other
 * Lots of good stuff that this margin is too small to contain. See
   <a href="REFERENCE.md">SQL language reference</a> and
   <a href="MODEL.md">JSON model reference</a>.
+
+# Optiq-csv release history
+
+Optiq-csv-0.3 was the last independent release of optiq-csv. From
+calcite-0.9.2 onwards, the code was included as the
+calcite-example-csv module.
+
+* Upgrade to calcite-0.9.1
+* Support gzip-compressed CSV and JSON files (recognized by '.gz' suffix)
+* Cleanup, and fix minor timezone issue in a test
+* Support for date types (date, time, timestamp) (Martijn van den Broek)
+* Upgrade to optiq-0.8, optiq-avatica-0.8, linq4j-0.4
+* Add support for JSON files (recognized by '.json' suffix)
+* Upgrade maven-release-plugin to version 2.4.2
+* Upgrade to optiq-0.6, linq4j-0.2
+* Add NOTICE and LICENSE files in generated JAR file
+
+## <a href="https://github.com/julianhyde/optiq-csv/releases/tag/optiq-csv-0.3">0.3</a> / 2014-03-21
+
+* Upgrade to optiq-0.5
+* Add workaround to
+  [<a href="https://github.com/jline/jline2/issues/62">JLINE2-62</a>]
+  to `sqlline.bat` (windows) and `sqlline` (windows using cygwin)
+* Fix classpath construction: `sqlline.bat` copies dependencies to
+  `target/dependencies`; `sqlline` constructs `target/classpath.txt`
+* Build, checkstyle and tests now succeed on windows (both native and cygwin)
+* Models can now contain comments
+* [<a href="https://github.com/julianhyde/optiq-csv/issues/2">OPTIQ-CSV-2</a>]
+  Update tutorial to reflect changes to Optiq's JDBC adapter
+
+## <a href="https://github.com/julianhyde/optiq-csv/releases/tag/optiq-csv-0.2">0.2</a> / 2014-02-18
+
+* Add test case for
+  [<a href="https://issues.apache.org/jira/browse/CALCITE-112">CALCITE-112</a>]
+* Add `sqlline.bat`, Windows SQL shell (based on fix for
+  [<a href="https://issues.apache.org/jira/browse/DRILL-338">DRILL-338</a>])
+* Upgrade to optiq-0.4.18, sqlline-1.1.7
+* Return a single object for single-col enumerator (Gabriel Reid)
+* Enable maven-checkstyle-plugin; fix checkstyle exceptions
+
+## <a href="https://github.com/julianhyde/optiq-csv/releases/tag/optiq-csv-0.1">0.1</a> / 2014-01-13
+
+* Add release notes and history
+* Enable maven-release-plugin
+* Upgrade to optiq-0.4.17, linq4j-0.1.12, sqlline-1.1.6
+* Upgrade tutorial for new Schema and Table SPIs
+* Fixes for optiq SPI changes in
+  [<a href="https://issues.apache.org/jira/browse/CALCITE-106">CALCITE-106</a>]
+* Enable oraclejdk8 in Travis CI
+* Fix bug where non-existent directory would give NPE; instead print warning
+* Add an example of a planner rule
+* Add `CsvTableFactory`, an example of a custom table
+* Add a view to tutorial
+* Split into scenario with a "simple" schema that generates tables
+  (`CsvTable`) that just execute and a "smart" schema that generates
+  tables (`CsvSmartTable`) that undergo optimization
+* Make `CsvEnumerator` a top-level class
+* Implement the algorithms to sniff names and types from the first
+  row, and to return an enumerator of all rows
+* Read column types from header of CSV file
 
 # Linq4j release history
 

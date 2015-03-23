@@ -19,7 +19,7 @@ package org.apache.calcite.rex;
 import org.apache.calcite.linq4j.function.Predicate1;
 import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.rel.RelCollation;
-import org.apache.calcite.rel.RelCollationImpl;
+import org.apache.calcite.rel.RelCollations;
 import org.apache.calcite.rel.RelFieldCollation;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
@@ -614,37 +614,6 @@ public class RexUtil {
   }
 
   /**
-   * Returns whether the leading edge of a given array of expressions is
-   * wholly {@link RexInputRef} objects with types and names corresponding
-   * to the underlying row type.
-   *
-   * @deprecated Remove before
-   * {@link org.apache.calcite.util.Bug#upgrade Calcite-1.1}. */
-  public static boolean containIdentity(List<? extends RexNode> exps,
-      RelDataType rowType, RelDataType childRowType) {
-    List<RelDataTypeField> fields = rowType.getFieldList();
-    List<RelDataTypeField> childFields = childRowType.getFieldList();
-    int fieldCount = childFields.size();
-    if (exps.size() != fieldCount) {
-      return false;
-    }
-    for (int i = 0; i < exps.size(); i++) {
-      RexNode exp = exps.get(i);
-      if (!(exp instanceof RexInputRef)) {
-        return false;
-      }
-      RexInputRef var = (RexInputRef) exp;
-      if (var.getIndex() != i) {
-        return false;
-      }
-      if (!fields.get(i).getName().equals(childFields.get(i).getName())) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  /**
    * Converts a collection of expressions into an AND.
    * If there are zero expressions, returns TRUE.
    * If there is one expression, returns just that expression.
@@ -767,7 +736,7 @@ public class RexUtil {
     final List<RelCollation> newCollationList =
         new ArrayList<RelCollation>();
     for (RelCollation collation : collationList) {
-      if (collation == RelCollationImpl.PRESERVE) {
+      if (collation == RelCollations.PRESERVE) {
         newCollationList.add(collation);
         continue;
       }
@@ -789,7 +758,7 @@ public class RexUtil {
       // and duplicate collations. Ignore these.
       if (!newFieldCollationList.isEmpty()) {
         final RelCollation newCollation =
-            RelCollationImpl.of(newFieldCollationList);
+            RelCollations.of(newFieldCollationList);
         if (!newCollationList.contains(newCollation)) {
           newCollationList.add(newCollation);
         }
@@ -817,7 +786,7 @@ public class RexUtil {
         applyFields(mapping, collation.getFieldCollations());
     return fieldCollations.equals(collation.getFieldCollations())
         ? collation
-        : RelCollationImpl.of(fieldCollations);
+        : RelCollations.of(fieldCollations);
   }
 
   /**

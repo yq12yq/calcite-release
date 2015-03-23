@@ -156,11 +156,12 @@ public class AggregateStarTableRule extends RelOptRule {
           + aggregateRelOptTable.getQualifiedName()
           + ", right granularity, but different measures "
           + aggregate.getAggCallList());
-      rel = RelOptUtil.project(rel,
+      rel = RelOptUtil.createProject(rel,
           new AbstractSourceMapping(
               tileKey.dimensions.cardinality() + tileKey.measures.size(),
               aggregate.getRowType().getFieldCount()) {
             public int getSourceOpt(int source) {
+              assert aggregate.getIndicatorCount() == 0;
               if (source < aggregate.getGroupCount()) {
                 int in = tileKey.dimensions.nth(source);
                 return aggregate.getGroupSet().indexOf(in);

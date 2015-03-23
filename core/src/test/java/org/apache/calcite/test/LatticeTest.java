@@ -124,7 +124,7 @@ public class LatticeTest {
   @Test public void testLatticeSqlWithOrderByFails() {
     modelWithLattice("star",
         "select 1 from \"foodmart\".\"sales_fact_1997\" as s order by \"product_id\"")
-        .connectThrows("Invalid node type Sort in lattice query");
+        .connectThrows("Invalid node type LogicalSort in lattice query");
   }
 
   /** Tests a lattice whose SQL is invalid because it contains a UNION ALL. */
@@ -191,7 +191,7 @@ public class LatticeTest {
         .substitutionMatches(
             CalciteAssert.checkRel(
                 "LogicalProject(unit_sales=[$7], brand_name=[$10])\n"
-                    + "  LogicalProject($f0=[$0], $f1=[$1], $f2=[$2], $f3=[$3], $f4=[$4], $f5=[$5], $f6=[$6], $f7=[$7], $f8=[$8], $f9=[$9], $f10=[$10], $f11=[$11], $f12=[$12], $f13=[$13], $f14=[$14], $f15=[$15], $f16=[$16], $f17=[$17], $f18=[$18], $f19=[$19], $f20=[$20], $f21=[$21], $f22=[$22])\n"
+                    + "  LogicalProject(product_id=[$0], time_id=[$1], customer_id=[$2], promotion_id=[$3], store_id=[$4], store_sales=[$5], store_cost=[$6], unit_sales=[$7], product_class_id=[$8], product_id0=[$9], brand_name=[$10], product_name=[$11], SKU=[$12], SRP=[$13], gross_weight=[$14], net_weight=[$15], recyclable_package=[$16], low_fat=[$17], units_per_case=[$18], cases_per_pallet=[$19], shelf_width=[$20], shelf_height=[$21], shelf_depth=[$22])\n"
                     + "    LogicalTableScan(table=[[adhoc, star]])\n",
                 counter));
     assertThat(counter.intValue(), equalTo(1));
@@ -213,7 +213,7 @@ public class LatticeTest {
                 assertThat(s,
                     anyOf(
                         containsString(
-                            "LogicalProject($f0=[$1], $f1=[$0])\n"
+                            "LogicalProject(brand_name=[$1], customer_id=[$0])\n"
                             + "  LogicalAggregate(group=[{2, 10}])\n"
                             + "    LogicalTableScan(table=[[adhoc, star]])\n"),
                         containsString(
@@ -224,7 +224,7 @@ public class LatticeTest {
             });
     assertThat(counter.intValue(), equalTo(2));
     that.explainContains(""
-        + "EnumerableCalc(expr#0..1=[{inputs}], $f0=[$t1], $f1=[$t0])\n"
+        + "EnumerableCalc(expr#0..1=[{inputs}], brand_name=[$t1], customer_id=[$t0])\n"
         + "  EnumerableTableScan(table=[[adhoc, m{2, 10}]])")
         .returnsCount(69203);
 
@@ -344,6 +344,32 @@ public class LatticeTest {
             "the_year=1997; quarter=Q3",
             "the_year=1997; quarter=Q4")
         .returnsCount(4);
+  }
+
+  /** Tests a query that is created within {@link #testTileAlgorithm()}. */
+  @Test public void testJG() {
+    CalciteAssert.that().with(CalciteAssert.Config.JDBC_FOODMART)
+        .query(
+            "SELECT \"s\".\"unit_sales\", \"p\".\"recyclable_package\", \"t\".\"the_day\", \"t\".\"the_year\", \"t\".\"quarter\", \"pc\".\"product_family\", COUNT(*) AS \"m0\", SUM(\"s\".\"store_sales\") AS \"m1\", SUM(\"s\".\"unit_sales\") AS \"m2\"\n"
+                + "FROM \"foodmart\".\"sales_fact_1997\" AS \"s\"\n"
+                + "JOIN \"foodmart\".\"product\" AS \"p\" ON \"s\".\"product_id\" = \"p\".\"product_id\"\n"
+                + "JOIN \"foodmart\".\"time_by_day\" AS \"t\" ON \"s\".\"time_id\" = \"t\".\"time_id\"\n"
+                + "JOIN \"foodmart\".\"product_class\" AS \"pc\" ON \"p\".\"product_class_id\" = \"pc\".\"product_class_id\"\n"
+                + "GROUP BY \"s\".\"unit_sales\", \"p\".\"recyclable_package\", \"t\".\"the_day\", \"t\".\"the_year\", \"t\".\"quarter\", \"pc\".\"product_family\"")
+        .explainContains(
+            "EnumerableAggregate(group=[{0, 1, 2, 3, 4, 5}], m0=[COUNT()], m1=[SUM($6)], m2=[SUM($0)])\n"
+                + "  EnumerableCalc(expr#0..37=[{inputs}], unit_sales=[$t17], recyclable_package=[$t26], the_day=[$t2], the_year=[$t4], quarter=[$t8], product_family=[$t37], store_sales=[$t15])\n"
+                + "    EnumerableJoin(condition=[=($0, $11)], joinType=[inner])\n"
+                + "      JdbcToEnumerableConverter\n"
+                + "        JdbcTableScan(table=[[foodmart, time_by_day]])\n"
+                + "      EnumerableJoin(condition=[=($8, $23)], joinType=[inner])\n"
+                + "        EnumerableJoin(condition=[=($0, $9)], joinType=[inner])\n"
+                + "          JdbcToEnumerableConverter\n"
+                + "            JdbcTableScan(table=[[foodmart, sales_fact_1997]])\n"
+                + "          JdbcToEnumerableConverter\n"
+                + "            JdbcTableScan(table=[[foodmart, product]])\n"
+                + "        JdbcToEnumerableConverter\n"
+                + "          JdbcTableScan(table=[[foodmart, product_class]])");
   }
 
   /** Tests a query that uses no columns from the fact table. */

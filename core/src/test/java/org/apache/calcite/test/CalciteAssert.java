@@ -33,7 +33,6 @@ import org.apache.calcite.schema.Schema;
 import org.apache.calcite.schema.SchemaPlus;
 import org.apache.calcite.schema.impl.AbstractSchema;
 import org.apache.calcite.schema.impl.ViewTable;
-import org.apache.calcite.util.Compatible;
 import org.apache.calcite.util.JsonBuilder;
 import org.apache.calcite.util.Pair;
 import org.apache.calcite.util.Util;
@@ -49,6 +48,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultiset;
 import com.google.common.collect.Lists;
+
+import net.hydromatic.foodmart.data.hsqldb.FoodmartHsqldb;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -78,7 +79,6 @@ import javax.sql.DataSource;
 
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.CoreMatchers.equalTo;
-import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThat;
@@ -342,8 +342,10 @@ public class CalciteAssert {
           CalciteAssert.toStringList(resultSet, actualList);
           Collections.sort(actualList);
 
-          // Use assertArrayEquals since it implements fine-grained comparison.
-          assertArrayEquals(expectedList.toArray(), actualList.toArray());
+          if (!actualList.equals(expectedList)) {
+            assertThat(Util.lines(actualList),
+                equalTo(Util.lines(expectedList)));
+          }
           return null;
         } catch (SQLException e) {
           throw new RuntimeException(e);
@@ -358,9 +360,7 @@ public class CalciteAssert {
       public Void apply(ResultSet s) {
         try {
           final String actual = Util.toLinux(CalciteAssert.toString(s));
-          if (!actual.contains(expected)) {
-            assertEquals("contains", expected, actual);
-          }
+          assertThat(actual, containsString(expected));
           return null;
         } catch (SQLException e) {
           throw new RuntimeException(e);
@@ -377,9 +377,7 @@ public class CalciteAssert {
           final String actual = Util.toLinux(CalciteAssert.toString(s));
           final String maskedActual =
               actual.replaceAll(", id = [0-9]+", "");
-          if (!maskedActual.contains(expected)) {
-            assertEquals("contains", expected, maskedActual);
-          }
+          assertThat(maskedActual, containsString(expected));
           return null;
         } catch (SQLException e) {
           throw new RuntimeException(e);
@@ -472,6 +470,15 @@ public class CalciteAssert {
       statement.close();
       connection.close();
     } catch (Throwable e) {
+      // We ignore extended message for non-runtime exception, however
+      // it does not matter much since it is better to have AssertionError
+      // at the very top level of the exception stack.
+      if (e instanceof RuntimeException) {
+        throw (RuntimeException) e;
+      }
+      if (e instanceof Error) {
+        throw (Error) e;
+      }
       throw new RuntimeException(message, e);
     } finally {
       for (Hook.Closeable closeable : closeableList) {
@@ -530,21 +537,27 @@ public class CalciteAssert {
     final StringBuilder buf = new StringBuilder();
     final ResultSetMetaData metaData = resultSet.getMetaData();
     while (resultSet.next()) {
-      int n = metaData.getColumnCount();
-      if (n > 0) {
-        for (int i = 1;; i++) {
-          buf.append(metaData.getColumnLabel(i))
-              .append("=")
-              .append(resultSet.getString(i));
-          if (i == n) {
-            break;
-          }
-          buf.append("; ");
-        }
-      }
-      buf.append("\n");
+      rowToString(resultSet, buf, metaData).append("\n");
     }
     return buf.toString();
+  }
+
+  /** Converts one row to a string. */
+  static StringBuilder rowToString(ResultSet resultSet, StringBuilder buf,
+      ResultSetMetaData metaData) throws SQLException {
+    int n = metaData.getColumnCount();
+    if (n > 0) {
+      for (int i = 1;; i++) {
+        buf.append(metaData.getColumnLabel(i))
+            .append("=")
+            .append(resultSet.getString(i));
+        if (i == n) {
+          break;
+        }
+        buf.append("; ");
+      }
+    }
+    return buf;
   }
 
   static int countRows(ResultSet resultSet) throws SQLException {
@@ -559,18 +572,7 @@ public class CalciteAssert {
       Collection<String> list) throws SQLException {
     final StringBuilder buf = new StringBuilder();
     while (resultSet.next()) {
-      int n = resultSet.getMetaData().getColumnCount();
-      if (n > 0) {
-        for (int i = 1;; i++) {
-          buf.append(resultSet.getMetaData().getColumnLabel(i))
-              .append("=")
-              .append(resultSet.getString(i));
-          if (i == n) {
-            break;
-          }
-          buf.append("; ");
-        }
-      }
+      rowToString(resultSet, buf, resultSet.getMetaData());
       list.add(buf.toString());
       buf.setLength(0);
     }
@@ -966,7 +968,7 @@ public class CalciteAssert {
         SchemaPlus rootSchema = con.getRootSchema();
         rootSchema.add(name, schema);
       }
-      Compatible.INSTANCE.setSchema(connection, name);
+      connection.setSchema(name);
       return connection;
     }
   }
@@ -1437,7 +1439,7 @@ public class CalciteAssert {
   /** Information necessary to create a JDBC connection. Specify one to run
    * tests against a different database. (hsqldb is the default.) */
   public enum ConnectionSpec {
-    HSQLDB("jdbc:hsqldb:res:foodmart", "FOODMART", "FOODMART",
+    HSQLDB(FoodmartHsqldb.URI, "FOODMART", "FOODMART",
         "org.hsqldb.jdbcDriver"),
     MYSQL("jdbc:mysql://localhost/foodmart", "foodmart", "foodmart",
         "com.mysql.jdbc.Driver");

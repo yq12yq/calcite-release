@@ -18,6 +18,8 @@ package org.apache.calcite.plan;
 
 import org.apache.calcite.linq4j.tree.Expression;
 import org.apache.calcite.rel.RelCollation;
+import org.apache.calcite.rel.RelDistribution;
+import org.apache.calcite.rel.RelDistributions;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.logical.LogicalTableScan;
 import org.apache.calcite.rel.type.RelDataType;
@@ -77,6 +79,10 @@ public abstract class RelOptAbstractTable implements RelOptTable {
     return Collections.emptyList();
   }
 
+  public RelDistribution getDistribution() {
+    return RelDistributions.BROADCAST_DISTRIBUTED;
+  }
+
   public <T> T unwrap(Class<T> clazz) {
     return clazz.isInstance(this)
         ? clazz.cast(this)
@@ -89,7 +95,7 @@ public abstract class RelOptAbstractTable implements RelOptTable {
   }
 
   public RelNode toRel(ToRelContext context) {
-    return new LogicalTableScan(context.getCluster(), this);
+    return LogicalTableScan.create(context.getCluster(), this);
   }
 
   public Expression getExpression(Class clazz) {

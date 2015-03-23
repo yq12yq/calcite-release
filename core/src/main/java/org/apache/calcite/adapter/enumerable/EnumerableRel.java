@@ -19,7 +19,6 @@ package org.apache.calcite.adapter.enumerable;
 import org.apache.calcite.linq4j.tree.BlockStatement;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.rel.RelNode;
-import org.apache.calcite.rel.core.Project;
 import org.apache.calcite.rel.core.RelFactories;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rex.RexNode;
@@ -38,24 +37,21 @@ public interface EnumerableRel
   RelFactories.FilterFactory FILTER_FACTORY =
       new RelFactories.FilterFactory() {
         public RelNode createFilter(RelNode child, RexNode condition) {
-          return new EnumerableFilter(child.getCluster(),
-              child.getTraitSet(), child, condition);
+          return EnumerableFilter.create(child, condition);
         }
       };
 
   RelFactories.ProjectFactory PROJECT_FACTORY =
       new RelFactories.ProjectFactory() {
         public RelNode createProject(RelNode child,
-            List<? extends RexNode> exprs, List<String> fieldNames) {
+            List<? extends RexNode> projects, List<String> fieldNames) {
           final RelOptCluster cluster = child.getCluster();
           final RelDataType rowType =
-              RexUtil.createStructType(cluster.getTypeFactory(), exprs,
+              RexUtil.createStructType(cluster.getTypeFactory(), projects,
                   fieldNames == null ? null
                       : SqlValidatorUtil.uniquify(fieldNames,
                           SqlValidatorUtil.F_SUGGESTER));
-          return new EnumerableProject(cluster,
-              child.getTraitSet(), child, exprs, rowType,
-              Project.Flags.BOXED);
+          return EnumerableProject.create(child, projects, rowType);
         }
       };
 

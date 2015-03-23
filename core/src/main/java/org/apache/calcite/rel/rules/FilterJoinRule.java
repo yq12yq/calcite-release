@@ -16,12 +16,12 @@
  */
 package org.apache.calcite.rel.rules;
 
-import org.apache.calcite.plan.Convention;
 import org.apache.calcite.plan.RelOptRule;
 import org.apache.calcite.plan.RelOptRuleCall;
 import org.apache.calcite.plan.RelOptRuleOperand;
 import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.rel.core.EquiJoin;
 import org.apache.calcite.rel.core.Filter;
 import org.apache.calcite.rel.core.Join;
 import org.apache.calcite.rel.core.JoinRelType;
@@ -228,7 +228,7 @@ public abstract class FilterJoinRule extends RelOptRule {
 
     RelNode newJoinRel =
         join.copy(
-            join.getCluster().traitSetOf(Convention.NONE),
+            join.getTraitSet(),
             joinFilter,
             leftRel,
             rightRel,

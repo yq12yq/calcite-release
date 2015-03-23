@@ -62,6 +62,7 @@ public class RelOptCluster {
     // giving the planner first crack at everything
     setMetadataProvider(new DefaultRelMetadataProvider());
     this.emptyTraitSet = planner.emptyTraitSet();
+    assert emptyTraitSet.size() == planner.getRelTraitDefs().size();
   }
 
   //~ Methods ----------------------------------------------------------------
@@ -108,13 +109,24 @@ public class RelOptCluster {
     return metadataFactory;
   }
 
+  /** Returns the default trait set for this cluster. */
+  public RelTraitSet traitSet() {
+    return emptyTraitSet;
+  }
+
+  /** @deprecated For {@code traitSetOf(t1, t2)},
+   * use {@link #traitSet}().replace(t1).replace(t2). */
+  @Deprecated // to be removed before 2.0
   public RelTraitSet traitSetOf(RelTrait... traits) {
     RelTraitSet traitSet = emptyTraitSet;
-    assert traitSet.size() == planner.getRelTraitDefs().size();
     for (RelTrait trait : traits) {
       traitSet = traitSet.replace(trait);
     }
     return traitSet;
+  }
+
+  public RelTraitSet traitSetOf(RelTrait trait) {
+    return emptyTraitSet.replace(trait);
   }
 }
 

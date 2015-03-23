@@ -41,10 +41,14 @@ public class DefaultRelMetadataProvider extends ChainedRelMetadataProvider {
             RelMdUniqueKeys.SOURCE,
             RelMdColumnUniqueness.SOURCE,
             RelMdPopulationSize.SOURCE,
+            RelMdSize.SOURCE,
+            RelMdParallelism.SOURCE,
+            RelMdMemory.SOURCE,
             RelMdDistinctRowCount.SOURCE,
             RelMdSelectivity.SOURCE,
             RelMdExplainVisibility.SOURCE,
-            RelMdPredicates.SOURCE));
+            RelMdPredicates.SOURCE,
+            RelMdCollation.SOURCE));
   }
 }
 

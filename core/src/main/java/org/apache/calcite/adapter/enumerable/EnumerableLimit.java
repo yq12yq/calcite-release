@@ -21,12 +21,20 @@ import org.apache.calcite.linq4j.tree.Expression;
 import org.apache.calcite.linq4j.tree.Expressions;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.RelTraitSet;
+import org.apache.calcite.rel.RelCollation;
+import org.apache.calcite.rel.RelCollationTraitDef;
+import org.apache.calcite.rel.RelDistribution;
+import org.apache.calcite.rel.RelDistributionTraitDef;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.RelWriter;
 import org.apache.calcite.rel.SingleRel;
+import org.apache.calcite.rel.metadata.RelMdCollation;
+import org.apache.calcite.rel.metadata.RelMdDistribution;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.util.BuiltInMethod;
+
+import com.google.common.base.Supplier;
 
 import java.util.List;
 
@@ -35,17 +43,42 @@ public class EnumerableLimit extends SingleRel implements EnumerableRel {
   private final RexNode offset;
   private final RexNode fetch;
 
+  /** Creates an EnumerableLimit.
+   *
+   * <p>Use {@link #create} unless you know what you're doing. */
   public EnumerableLimit(
       RelOptCluster cluster,
       RelTraitSet traitSet,
-      RelNode child,
+      RelNode input,
       RexNode offset,
       RexNode fetch) {
-    super(cluster, traitSet, child);
+    super(cluster, traitSet, input);
     this.offset = offset;
     this.fetch = fetch;
     assert getConvention() instanceof EnumerableConvention;
-    assert getConvention() == child.getConvention();
+    assert getConvention() == input.getConvention();
+  }
+
+  /** Creates an EnumerableLimit. */
+  public static EnumerableLimit create(final RelNode input, RexNode offset,
+      RexNode fetch) {
+    final RelOptCluster cluster = input.getCluster();
+    final RelTraitSet traitSet =
+        cluster.traitSetOf(EnumerableConvention.INSTANCE)
+            .replaceIfs(
+                RelCollationTraitDef.INSTANCE,
+                new Supplier<List<RelCollation>>() {
+                  public List<RelCollation> get() {
+                    return RelMdCollation.limit(input);
+                  }
+                })
+            .replaceIf(RelDistributionTraitDef.INSTANCE,
+                new Supplier<RelDistribution>() {
+                  public RelDistribution get() {
+                    return RelMdDistribution.limit(input);
+                  }
+                });
+    return new EnumerableLimit(cluster, traitSet, input, offset, fetch);
   }
 
   @Override public EnumerableLimit copy(

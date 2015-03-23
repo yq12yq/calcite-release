@@ -31,7 +31,9 @@ import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.plan.RelTraitSet;
 import org.apache.calcite.rel.InvalidRelException;
 import org.apache.calcite.rel.RelCollation;
+import org.apache.calcite.rel.RelCollationTraitDef;
 import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.rel.RelWriter;
 import org.apache.calcite.rel.convert.ConverterRule;
 import org.apache.calcite.rel.core.Aggregate;
 import org.apache.calcite.rel.core.AggregateCall;
@@ -48,15 +50,25 @@ import org.apache.calcite.rel.logical.LogicalAggregate;
 import org.apache.calcite.rel.logical.LogicalFilter;
 import org.apache.calcite.rel.logical.LogicalJoin;
 import org.apache.calcite.rel.logical.LogicalProject;
+import org.apache.calcite.rel.logical.LogicalTableScan;
 import org.apache.calcite.rel.logical.LogicalUnion;
 import org.apache.calcite.rel.logical.LogicalValues;
 import org.apache.calcite.rel.logical.LogicalWindow;
+import org.apache.calcite.rel.metadata.RelMdCollation;
 import org.apache.calcite.rel.type.RelDataType;
+import org.apache.calcite.rel.type.RelDataTypeFactory;
+import org.apache.calcite.rel.type.RelDataTypeField;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
+import org.apache.calcite.schema.FilterableTable;
+import org.apache.calcite.schema.ProjectableFilterableTable;
 import org.apache.calcite.schema.ScannableTable;
+import org.apache.calcite.schema.Table;
 import org.apache.calcite.util.ImmutableBitSet;
+import org.apache.calcite.util.ImmutableIntList;
 
+import com.google.common.base.Preconditions;
+import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -68,7 +80,7 @@ import java.util.Set;
 public class Bindables {
   private Bindables() {}
 
-  public static final RelOptRule BINDABLE_TABLE_RULE =
+  public static final RelOptRule BINDABLE_TABLE_SCAN_RULE =
       new BindableTableScanRule();
 
   public static final RelOptRule BINDABLE_FILTER_RULE =
@@ -99,7 +111,7 @@ public class Bindables {
   public static final ImmutableList<RelOptRule> RULES =
       ImmutableList.of(
           NoneToBindableConverterRule.INSTANCE,
-          BINDABLE_TABLE_RULE,
+          BINDABLE_TABLE_SCAN_RULE,
           BINDABLE_FILTER_RULE,
           BINDABLE_PROJECT_RULE,
           BINDABLE_SORT_RULE,
@@ -120,35 +132,102 @@ public class Bindables {
     return new Interpreter(dataContext, rel);
   }
 
-  /** Rule that converts a {@link ScannableTable} to bindable convention. */
+  /** Rule that converts a {@link org.apache.calcite.rel.core.TableScan}
+   * to bindable convention. */
   private static class BindableTableScanRule extends RelOptRule {
-    public BindableTableScanRule() {
-      super(operand(TableScan.class, none()));
+    private BindableTableScanRule() {
+      super(operand(LogicalTableScan.class, none()));
     }
 
     @Override public void onMatch(RelOptRuleCall call) {
-      final TableScan scan = call.rel(0);
-      call.transformTo(
-          new BindableTableScan(scan.getCluster(),
-              scan.getTraitSet().replace(BindableConvention.INSTANCE),
-              scan.getTable()));
+      final LogicalTableScan scan = call.rel(0);
+      final RelOptTable table = scan.getTable();
+      if (BindableTableScan.canHandle(table)) {
+        call.transformTo(
+            BindableTableScan.create(scan.getCluster(), table));
+      }
     }
   }
 
   /** Scan of a table that implements {@link ScannableTable} and therefore can
    * be converted into an {@link Enumerable}. */
-  private static class BindableTableScan
+  public static class BindableTableScan
       extends TableScan implements BindableRel {
-    BindableTableScan(RelOptCluster cluster, RelTraitSet traits,
-        RelOptTable table) {
-      super(cluster, traits, table);
+    public final ImmutableList<RexNode> filters;
+    public final ImmutableIntList projects;
+
+    /** Creates a BindableTableScan.
+     *
+     * <p>Use {@link #create} unless you know what you are doing. */
+    BindableTableScan(RelOptCluster cluster, RelTraitSet traitSet,
+        RelOptTable table, ImmutableList<RexNode> filters,
+        ImmutableIntList projects) {
+      super(cluster, traitSet, table);
+      this.filters = Preconditions.checkNotNull(filters);
+      this.projects = Preconditions.checkNotNull(projects);
+      Preconditions.checkArgument(canHandle(table));
+    }
+
+    /** Creates a BindableTableScan. */
+    public static BindableTableScan create(RelOptCluster cluster,
+        RelOptTable relOptTable) {
+      return create(cluster, relOptTable, ImmutableList.<RexNode>of(),
+          identity(relOptTable));
+    }
+
+    /** Creates a BindableTableScan. */
+    public static BindableTableScan create(RelOptCluster cluster,
+        RelOptTable relOptTable, List<RexNode> filters,
+        List<Integer> projects) {
+      final Table table = relOptTable.unwrap(Table.class);
+      final RelTraitSet traitSet =
+          cluster.traitSetOf(BindableConvention.INSTANCE)
+              .replaceIfs(RelCollationTraitDef.INSTANCE,
+                  new Supplier<List<RelCollation>>() {
+                    public List<RelCollation> get() {
+                      if (table != null) {
+                        return table.getStatistic().getCollations();
+                      }
+                      return ImmutableList.of();
+                    }
+                  });
+      return new BindableTableScan(cluster, traitSet, relOptTable,
+          ImmutableList.copyOf(filters), ImmutableIntList.copyOf(projects));
+    }
+
+    @Override public RelDataType deriveRowType() {
+      final RelDataTypeFactory.FieldInfoBuilder builder =
+          getCluster().getTypeFactory().builder();
+      final List<RelDataTypeField> fieldList =
+          table.getRowType().getFieldList();
+      for (int project : projects) {
+        builder.add(fieldList.get(project));
+      }
+      return builder.build();
     }
 
     public Class<Object[]> getElementType() {
       return Object[].class;
     }
 
+    @Override public RelWriter explainTerms(RelWriter pw) {
+      return super.explainTerms(pw)
+          .itemIf("filters", filters, !filters.isEmpty())
+          .itemIf("projects", projects, !projects.equals(identity()));
+    }
+
+    @Override public RelOptCost computeSelfCost(RelOptPlanner planner) {
+      return super.computeSelfCost(planner).multiplyBy(0.01d);
+    }
+
+    public static boolean canHandle(RelOptTable table) {
+      return table.unwrap(ScannableTable.class) != null
+          || table.unwrap(FilterableTable.class) != null
+          || table.unwrap(ProjectableFilterableTable.class) != null;
+    }
+
     public Enumerable<Object[]> bind(DataContext dataContext) {
+      // TODO: filterable and projectable
       return table.unwrap(ScannableTable.class).scan(dataContext);
     }
 
@@ -166,8 +245,7 @@ public class Bindables {
 
     public RelNode convert(RelNode rel) {
       final LogicalFilter filter = (LogicalFilter) rel;
-      return new BindableFilter(rel.getCluster(),
-          rel.getTraitSet().replace(BindableConvention.INSTANCE),
+      return BindableFilter.create(
           convert(filter.getInput(),
               filter.getInput().getTraitSet()
                   .replace(BindableConvention.INSTANCE)),
@@ -179,9 +257,24 @@ public class Bindables {
    * in bindable convention. */
   public static class BindableFilter extends Filter implements BindableRel {
     public BindableFilter(RelOptCluster cluster, RelTraitSet traitSet,
-        RelNode child, RexNode condition) {
-      super(cluster, traitSet, child, condition);
+        RelNode input, RexNode condition) {
+      super(cluster, traitSet, input, condition);
       assert getConvention() instanceof BindableConvention;
+    }
+
+    /** Creates a BindableFilter. */
+    public static BindableFilter create(final RelNode input,
+        RexNode condition) {
+      final RelOptCluster cluster = input.getCluster();
+      final RelTraitSet traitSet =
+          cluster.traitSetOf(BindableConvention.INSTANCE)
+              .replaceIfs(RelCollationTraitDef.INSTANCE,
+                  new Supplier<List<RelCollation>>() {
+                    public List<RelCollation> get() {
+                      return RelMdCollation.filter(input);
+                    }
+                  });
+      return new BindableFilter(cluster, traitSet, input, condition);
     }
 
     public BindableFilter copy(RelTraitSet traitSet, RelNode input,
@@ -207,7 +300,7 @@ public class Bindables {
    * to a {@link BindableProject}.
    */
   private static class BindableProjectRule extends ConverterRule {
-    BindableProjectRule() {
+    private BindableProjectRule() {
       super(LogicalProject.class, RelOptUtil.PROJECT_PREDICATE, Convention.NONE,
           BindableConvention.INSTANCE, "BindableProjectRule");
     }
@@ -220,8 +313,7 @@ public class Bindables {
               project.getInput().getTraitSet()
                   .replace(BindableConvention.INSTANCE)),
           project.getProjects(),
-          project.getRowType(),
-          Project.Flags.BOXED);
+          project.getRowType());
     }
   }
 
@@ -229,16 +321,15 @@ public class Bindables {
    * bindable calling convention. */
   public static class BindableProject extends Project implements BindableRel {
     public BindableProject(RelOptCluster cluster, RelTraitSet traitSet,
-        RelNode child, List<? extends RexNode> exps, RelDataType rowType,
-        int flags) {
-      super(cluster, traitSet, child, exps, rowType, flags);
+        RelNode input, List<? extends RexNode> projects, RelDataType rowType) {
+      super(cluster, traitSet, input, projects, rowType);
       assert getConvention() instanceof BindableConvention;
     }
 
     public BindableProject copy(RelTraitSet traitSet, RelNode input,
-        List<RexNode> exps, RelDataType rowType) {
-      return new BindableProject(getCluster(), traitSet, input, exps, rowType,
-          flags);
+        List<RexNode> projects, RelDataType rowType) {
+      return new BindableProject(getCluster(), traitSet, input,
+          projects, rowType);
     }
 
     public Class<Object[]> getElementType() {
@@ -259,7 +350,7 @@ public class Bindables {
    * {@link org.apache.calcite.interpreter.Bindables.BindableSort}.
    */
   private static class BindableSortRule extends ConverterRule {
-    BindableSortRule() {
+    private BindableSortRule() {
       super(Sort.class, Convention.NONE, BindableConvention.INSTANCE,
           "BindableSortRule");
     }
@@ -280,10 +371,10 @@ public class Bindables {
    * bindable calling convention. */
   public static class BindableSort extends Sort implements BindableRel {
     public BindableSort(RelOptCluster cluster, RelTraitSet traitSet,
-        RelNode child, RelCollation collation, RexNode offset, RexNode fetch) {
-      super(cluster, traitSet, child, collation, offset, fetch);
+        RelNode input, RelCollation collation, RexNode offset, RexNode fetch) {
+      super(cluster, traitSet, input, collation, offset, fetch);
       assert getConvention() instanceof BindableConvention;
-      assert getConvention() == child.getConvention();
+      assert getConvention() == input.getConvention();
     }
 
     @Override public BindableSort copy(RelTraitSet traitSet, RelNode newInput,
@@ -310,7 +401,7 @@ public class Bindables {
    * to a {@link BindableJoin}.
    */
   private static class BindableJoinRule extends ConverterRule {
-    BindableJoinRule() {
+    private BindableJoinRule() {
       super(LogicalJoin.class, Convention.NONE, BindableConvention.INSTANCE,
           "BindableJoinRule");
     }
@@ -333,10 +424,10 @@ public class Bindables {
   /** Implementation of {@link org.apache.calcite.rel.core.Join} in
    * bindable calling convention. */
   public static class BindableJoin extends Join implements BindableRel {
-    protected BindableJoin(RelOptCluster cluster, RelTraitSet traits,
+    protected BindableJoin(RelOptCluster cluster, RelTraitSet traitSet,
         RelNode left, RelNode right, RexNode condition, JoinRelType joinType,
         Set<String> variablesStopped) {
-      super(cluster, traits, left, right, condition, joinType,
+      super(cluster, traitSet, left, right, condition, joinType,
           variablesStopped);
     }
 
@@ -365,7 +456,7 @@ public class Bindables {
    * to a {@link BindableUnion}.
    */
   private static class BindableUnionRule extends ConverterRule {
-    BindableUnionRule() {
+    private BindableUnionRule() {
       super(LogicalUnion.class, Convention.NONE, BindableConvention.INSTANCE,
           "BindableUnionRule");
     }
@@ -433,7 +524,7 @@ public class Bindables {
 
   /** Rule that converts a {@link Values} to bindable convention. */
   private static class BindableValuesRule extends ConverterRule {
-    BindableValuesRule() {
+    private BindableValuesRule() {
       super(LogicalValues.class, Convention.NONE, BindableConvention.INSTANCE,
           "BindableValuesRule");
     }
@@ -453,13 +544,13 @@ public class Bindables {
     public BindableAggregate(
         RelOptCluster cluster,
         RelTraitSet traitSet,
-        RelNode child,
+        RelNode input,
         boolean indicator,
         ImmutableBitSet groupSet,
         List<ImmutableBitSet> groupSets,
         List<AggregateCall> aggCalls)
         throws InvalidRelException {
-      super(cluster, traitSet, child, indicator, groupSet, groupSets, aggCalls);
+      super(cluster, traitSet, input, indicator, groupSet, groupSets, aggCalls);
       assert getConvention() instanceof BindableConvention;
 
       for (AggregateCall aggCall : aggCalls) {
@@ -504,7 +595,7 @@ public class Bindables {
 
   /** Rule that converts an {@link Aggregate} to bindable convention. */
   private static class BindableAggregateRule extends ConverterRule {
-    BindableAggregateRule() {
+    private BindableAggregateRule() {
       super(LogicalAggregate.class, Convention.NONE,
           BindableConvention.INSTANCE, "BindableAggregateRule");
     }
@@ -528,9 +619,9 @@ public class Bindables {
    * in bindable convention. */
   public static class BindableWindow extends Window implements BindableRel {
     /** Creates an BindableWindowRel. */
-    BindableWindow(RelOptCluster cluster, RelTraitSet traits, RelNode child,
+    BindableWindow(RelOptCluster cluster, RelTraitSet traitSet, RelNode input,
         List<RexLiteral> constants, RelDataType rowType, List<Group> groups) {
-      super(cluster, traits, child, constants, rowType, groups);
+      super(cluster, traitSet, input, constants, rowType, groups);
     }
 
     @Override public RelNode copy(RelTraitSet traitSet, List<RelNode> inputs) {
@@ -561,7 +652,7 @@ public class Bindables {
    * to a {@link BindableWindow}.
    */
   private static class BindableWindowRule extends ConverterRule {
-    BindableWindowRule() {
+    private BindableWindowRule() {
       super(LogicalWindow.class, Convention.NONE, BindableConvention.INSTANCE,
           "BindableWindowRule");
     }
@@ -570,11 +661,11 @@ public class Bindables {
       final LogicalWindow winAgg = (LogicalWindow) rel;
       final RelTraitSet traitSet =
           winAgg.getTraitSet().replace(BindableConvention.INSTANCE);
-      final RelNode child = winAgg.getInput();
-      final RelNode convertedChild =
-          convert(child,
-              child.getTraitSet().replace(BindableConvention.INSTANCE));
-      return new BindableWindow(rel.getCluster(), traitSet, convertedChild,
+      final RelNode input = winAgg.getInput();
+      final RelNode convertedInput =
+          convert(input,
+              input.getTraitSet().replace(BindableConvention.INSTANCE));
+      return new BindableWindow(rel.getCluster(), traitSet, convertedInput,
           winAgg.getConstants(), winAgg.getRowType(), winAgg.groups);
     }
   }

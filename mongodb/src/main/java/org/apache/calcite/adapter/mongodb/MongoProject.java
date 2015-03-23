@@ -37,16 +37,23 @@ import java.util.List;
  */
 public class MongoProject extends Project implements MongoRel {
   public MongoProject(RelOptCluster cluster, RelTraitSet traitSet,
-      RelNode child, List<RexNode> exps, RelDataType rowType, int flags) {
-    super(cluster, traitSet, child, exps, rowType, flags);
+      RelNode input, List<? extends RexNode> projects, RelDataType rowType) {
+    super(cluster, traitSet, input, projects, rowType);
     assert getConvention() == MongoRel.CONVENTION;
-    assert getConvention() == child.getConvention();
+    assert getConvention() == input.getConvention();
+  }
+
+  @Deprecated // to be removed before 2.0
+  public MongoProject(RelOptCluster cluster, RelTraitSet traitSet,
+      RelNode input, List<RexNode> projects, RelDataType rowType, int flags) {
+    this(cluster, traitSet, input, projects, rowType);
+    Util.discard(flags);
   }
 
   @Override public Project copy(RelTraitSet traitSet, RelNode input,
-      List<RexNode> exps, RelDataType rowType) {
-    return new MongoProject(getCluster(), traitSet, input, exps,
-        rowType, flags);
+      List<RexNode> projects, RelDataType rowType) {
+    return new MongoProject(getCluster(), traitSet, input, projects,
+        rowType);
   }
 
   @Override public RelOptCost computeSelfCost(RelOptPlanner planner) {

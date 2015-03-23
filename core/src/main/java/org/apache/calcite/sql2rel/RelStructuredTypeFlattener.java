@@ -16,7 +16,6 @@
  */
 package org.apache.calcite.sql2rel;
 
-import org.apache.calcite.plan.Convention;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.RelOptTable;
 import org.apache.calcite.plan.RelOptUtil;
@@ -37,11 +36,14 @@ import org.apache.calcite.rel.logical.LogicalIntersect;
 import org.apache.calcite.rel.logical.LogicalJoin;
 import org.apache.calcite.rel.logical.LogicalMinus;
 import org.apache.calcite.rel.logical.LogicalProject;
+import org.apache.calcite.rel.logical.LogicalSort;
 import org.apache.calcite.rel.logical.LogicalTableFunctionScan;
 import org.apache.calcite.rel.logical.LogicalTableModify;
 import org.apache.calcite.rel.logical.LogicalTableScan;
 import org.apache.calcite.rel.logical.LogicalUnion;
 import org.apache.calcite.rel.logical.LogicalValues;
+import org.apache.calcite.rel.stream.LogicalChi;
+import org.apache.calcite.rel.stream.LogicalDelta;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeField;
 import org.apache.calcite.rex.RexBuilder;
@@ -70,7 +72,6 @@ import org.apache.calcite.util.Util;
 import org.apache.calcite.util.mapping.Mappings;
 
 import com.google.common.base.Function;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.SortedSetMultimap;
@@ -342,14 +343,9 @@ public class RelStructuredTypeFlattener implements ReflectiveVisitor {
 
   public void rewriteRel(LogicalTableModify rel) {
     LogicalTableModify newRel =
-        new LogicalTableModify(
-            rel.getCluster(),
-            rel.getTable(),
-            rel.getCatalogReader(),
-            getNewForOldRel(rel.getInput()),
-            rel.getOperation(),
-            rel.getUpdateColumnList(),
-            true);
+        LogicalTableModify.create(rel.getTable(), rel.getCatalogReader(),
+            getNewForOldRel(rel.getInput()), rel.getOperation(),
+            rel.getUpdateColumnList(), true);
     setNewForOldRel(rel, newRel);
   }
 
@@ -384,13 +380,7 @@ public class RelStructuredTypeFlattener implements ReflectiveVisitor {
     }
     RelCollation newCollation = RexUtil.apply(mapping, oldCollation);
     Sort newRel =
-        new Sort(
-            rel.getCluster(),
-            rel.getCluster().traitSetOf(Convention.NONE).plus(newCollation),
-            newChild,
-            newCollation,
-            rel.offset,
-            rel.fetch);
+        LogicalSort.create(newChild, newCollation, rel.offset, rel.fetch);
     setNewForOldRel(rel, newRel);
   }
 
@@ -404,8 +394,7 @@ public class RelStructuredTypeFlattener implements ReflectiveVisitor {
 
   public void rewriteRel(LogicalJoin rel) {
     LogicalJoin newRel =
-        new LogicalJoin(
-            rel.getCluster(),
+        LogicalJoin.create(
             getNewForOldRel(rel.getLeft()),
             getNewForOldRel(rel.getRight()),
             rel.getCondition().accept(new RewriteRexShuttle()),
@@ -426,9 +415,7 @@ public class RelStructuredTypeFlattener implements ReflectiveVisitor {
       newPos.set(getNewForOldInput(pos));
     }
     LogicalCorrelate newRel =
-        new LogicalCorrelate(
-            rel.getCluster(),
-            getNewForOldRel(rel.getLeft()),
+        LogicalCorrelate.create(getNewForOldRel(rel.getLeft()),
             getNewForOldRel(rel.getRight()),
             rel.getCorrelationId(),
             newPos.build(),
@@ -489,12 +476,12 @@ public class RelStructuredTypeFlattener implements ReflectiveVisitor {
 
   public void rewriteRel(LogicalCalc rel) {
     // Translate the child.
-    final RelNode newChild = getNewForOldRel(rel.getInput());
+    final RelNode newInput = getNewForOldRel(rel.getInput());
 
     final RelOptCluster cluster = rel.getCluster();
     RexProgramBuilder programBuilder =
         new RexProgramBuilder(
-            newChild.getRowType(),
+            newInput.getRowType(),
             cluster.getRexBuilder());
 
     // Convert the common expressions.
@@ -530,13 +517,7 @@ public class RelStructuredTypeFlattener implements ReflectiveVisitor {
     RexProgram newProgram = programBuilder.getProgram();
 
     // Create a new calc relational expression.
-    LogicalCalc newRel =
-        new LogicalCalc(
-            cluster,
-            rel.getTraitSet(),
-            newChild,
-            newProgram,
-            ImmutableList.<RelCollation>of());
+    LogicalCalc newRel = LogicalCalc.create(newInput, newProgram);
     setNewForOldRel(rel, newRel);
   }
 
@@ -646,10 +627,7 @@ public class RelStructuredTypeFlattener implements ReflectiveVisitor {
       RelDataType type,
       List<Pair<RexNode, String>> flattenedExps) {
     RelDataType flattenedType =
-        SqlTypeUtil.flattenRecordType(
-            rexBuilder.getTypeFactory(),
-            type,
-            null);
+        SqlTypeUtil.flattenRecordType(rexBuilder.getTypeFactory(), type, null);
     for (RelDataTypeField field : flattenedType.getFieldList()) {
       flattenedExps.add(
           Pair.of(
@@ -679,6 +657,14 @@ public class RelStructuredTypeFlattener implements ReflectiveVisitor {
           RelOptUtil.createProject(newRel, flattenedExpList, false);
     }
     setNewForOldRel(rel, newRel);
+  }
+
+  public void rewriteRel(LogicalDelta rel) {
+    rewriteGeneric(rel);
+  }
+
+  public void rewriteRel(LogicalChi rel) {
+    rewriteGeneric(rel);
   }
 
   /** Generates expressions that reference the flattened input fields from

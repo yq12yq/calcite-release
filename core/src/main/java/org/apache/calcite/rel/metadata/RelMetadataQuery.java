@@ -19,13 +19,18 @@ package org.apache.calcite.rel.metadata;
 import org.apache.calcite.plan.RelOptCost;
 import org.apache.calcite.plan.RelOptPredicateList;
 import org.apache.calcite.plan.RelOptTable;
+import org.apache.calcite.rel.RelCollation;
+import org.apache.calcite.rel.RelDistribution;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.SqlExplainLevel;
 import org.apache.calcite.util.ImmutableBitSet;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -277,6 +282,36 @@ public abstract class RelMetadataQuery {
 
   /**
    * Returns the
+   * {@link org.apache.calcite.rel.metadata.BuiltInMetadata.Collation#collations()}
+   * statistic.
+   *
+   * @param rel         the relational expression
+   * @return List of sorted column combinations, or
+   * null if not enough information is available to make that determination
+   */
+  public static ImmutableList<RelCollation> collations(RelNode rel) {
+    final BuiltInMetadata.Collation metadata =
+        rel.metadata(BuiltInMetadata.Collation.class);
+    return metadata.collations();
+  }
+
+  /**
+   * Returns the
+   * {@link org.apache.calcite.rel.metadata.BuiltInMetadata.Distribution#distribution()}
+   * statistic.
+   *
+   * @param rel         the relational expression
+   * @return List of sorted column combinations, or
+   * null if not enough information is available to make that determination
+   */
+  public static RelDistribution distribution(RelNode rel) {
+    final BuiltInMetadata.Distribution metadata =
+        rel.metadata(BuiltInMetadata.Distribution.class);
+    return metadata.distribution();
+  }
+
+  /**
+   * Returns the
    * {@link BuiltInMetadata.PopulationSize#getPopulationSize(org.apache.calcite.util.ImmutableBitSet)}
    * statistic.
    *
@@ -285,6 +320,7 @@ public abstract class RelMetadataQuery {
    *                 the row count will be determined
    * @return distinct row count for the given groupKey, or null if no reliable
    * estimate can be determined
+   *
    */
   public static Double getPopulationSize(RelNode rel,
       ImmutableBitSet groupKey) {
@@ -292,6 +328,125 @@ public abstract class RelMetadataQuery {
         rel.metadata(BuiltInMetadata.PopulationSize.class);
     Double result = metadata.getPopulationSize(groupKey);
     return validateResult(result);
+  }
+
+  /**
+   * Returns the
+   * {@link org.apache.calcite.rel.metadata.BuiltInMetadata.Size#averageRowSize()}
+   * statistic.
+   *
+   * @param rel      the relational expression
+   * @return average size of a row, in bytes, or null if not known
+     */
+  public static Double getAverageRowSize(RelNode rel) {
+    final BuiltInMetadata.Size metadata =
+        rel.metadata(BuiltInMetadata.Size.class);
+    return metadata.averageRowSize();
+  }
+
+  /**
+   * Returns the
+   * {@link org.apache.calcite.rel.metadata.BuiltInMetadata.Size#averageColumnSizes()}
+   * statistic.
+   *
+   * @param rel      the relational expression
+   * @return a list containing, for each column, the average size of a column
+   * value, in bytes. Each value or the entire list may be null if the
+   * metadata is not available
+   */
+  public static List<Double> getAverageColumnSizes(RelNode rel) {
+    final BuiltInMetadata.Size metadata =
+        rel.metadata(BuiltInMetadata.Size.class);
+    return metadata.averageColumnSizes();
+  }
+
+  /** As {@link #getAverageColumnSizes(org.apache.calcite.rel.RelNode)} but
+   * never returns a null list, only ever a list of nulls. */
+  public static List<Double> getAverageColumnSizesNotNull(RelNode rel) {
+    final BuiltInMetadata.Size metadata =
+        rel.metadata(BuiltInMetadata.Size.class);
+    final List<Double> averageColumnSizes = metadata.averageColumnSizes();
+    return averageColumnSizes == null
+        ? Collections.<Double>nCopies(rel.getRowType().getFieldCount(), null)
+        : averageColumnSizes;
+  }
+
+  /**
+   * Returns the
+   * {@link org.apache.calcite.rel.metadata.BuiltInMetadata.Parallelism#isPhaseTransition()}
+   * statistic.
+   *
+   * @param rel      the relational expression
+   * @return whether each physical operator implementing this relational
+   * expression belongs to a different process than its inputs, or null if not
+   * known
+   */
+  public static Boolean isPhaseTransition(RelNode rel) {
+    final BuiltInMetadata.Parallelism metadata =
+        rel.metadata(BuiltInMetadata.Parallelism.class);
+    return metadata.isPhaseTransition();
+  }
+
+  /**
+   * Returns the
+   * {@link org.apache.calcite.rel.metadata.BuiltInMetadata.Parallelism#splitCount()}
+   * statistic.
+   *
+   * @param rel      the relational expression
+   * @return the number of distinct splits of the data, or null if not known
+   */
+  public static Integer splitCount(RelNode rel) {
+    final BuiltInMetadata.Parallelism metadata =
+        rel.metadata(BuiltInMetadata.Parallelism.class);
+    return metadata.splitCount();
+  }
+
+  /**
+   * Returns the
+   * {@link org.apache.calcite.rel.metadata.BuiltInMetadata.Memory#memory()}
+   * statistic.
+   *
+   * @param rel      the relational expression
+   * @return the expected amount of memory, in bytes, required by a physical
+   * operator implementing this relational expression, across all splits,
+   * or null if not known
+   */
+  public static Double memory(RelNode rel) {
+    final BuiltInMetadata.Memory metadata =
+        rel.metadata(BuiltInMetadata.Memory.class);
+    return metadata.memory();
+  }
+
+  /**
+   * Returns the
+   * {@link org.apache.calcite.rel.metadata.BuiltInMetadata.Memory#cumulativeMemoryWithinPhase()}
+   * statistic.
+   *
+   * @param rel      the relational expression
+   * @return the cumulative amount of memory, in bytes, required by the
+   * physical operator implementing this relational expression, and all other
+   * operators within the same phase, across all splits, or null if not known
+   */
+  public static Double cumulativeMemoryWithinPhase(RelNode rel) {
+    final BuiltInMetadata.Memory metadata =
+        rel.metadata(BuiltInMetadata.Memory.class);
+    return metadata.cumulativeMemoryWithinPhase();
+  }
+
+  /**
+   * Returns the
+   * {@link org.apache.calcite.rel.metadata.BuiltInMetadata.Memory#cumulativeMemoryWithinPhaseSplit()}
+   * statistic.
+   *
+   * @param rel      the relational expression
+   * @return the expected cumulative amount of memory, in bytes, required by
+   * the physical operator implementing this relational expression, and all
+   * operators within the same phase, within each split, or null if not known
+   */
+  public static Double cumulativeMemoryWithinPhaseSplit(RelNode rel) {
+    final BuiltInMetadata.Memory metadata =
+        rel.metadata(BuiltInMetadata.Memory.class);
+    return metadata.cumulativeMemoryWithinPhaseSplit();
   }
 
   /**

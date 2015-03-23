@@ -23,7 +23,8 @@ import org.apache.calcite.sql.parser.SqlParserPos;
  */
 public enum SqlSelectKeyword implements SqlLiteral.SqlSymbol {
   DISTINCT,
-  ALL;
+  ALL,
+  STREAM;
 
   /**
    * Creates a parse-tree node representing an occurrence of this keyword

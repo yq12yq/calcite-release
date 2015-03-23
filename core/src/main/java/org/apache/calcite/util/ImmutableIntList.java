@@ -19,6 +19,7 @@ package org.apache.calcite.util;
 import org.apache.calcite.runtime.FlatLists;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import com.google.common.collect.UnmodifiableListIterator;
 
 import java.lang.reflect.Array;
@@ -73,15 +74,29 @@ public class ImmutableIntList extends FlatLists.AbstractFlatList<Integer> {
   }
 
   /**
-   * Creates an ImmutableIntList from a collection of {@link Number}.
+   * Creates an ImmutableIntList from an iterable of {@link Number}.
    */
-  public static ImmutableIntList copyOf(Collection<? extends Number> list) {
+  public static ImmutableIntList copyOf(Iterable<? extends Number> list) {
     if (list instanceof ImmutableIntList) {
       return (ImmutableIntList) list;
     }
-    if (list.isEmpty()) {
-      return EMPTY;
-    }
+    @SuppressWarnings("unchecked")
+    final Collection<? extends Number> collection =
+        list instanceof Collection
+            ? (Collection<? extends Number>) list
+            : Lists.newArrayList(list);
+    return copyFromCollection(collection);
+  }
+
+  /**
+   * Creates an ImmutableIntList from an iterator of {@link Number}.
+   */
+  public static ImmutableIntList copyOf(Iterator<? extends Number> list) {
+    return copyFromCollection(Lists.newArrayList(list));
+  }
+
+  private static ImmutableIntList copyFromCollection(
+      Collection<? extends Number> list) {
     final int[] ints = new int[list.size()];
     int i = 0;
     for (Number number : list) {
@@ -97,9 +112,9 @@ public class ImmutableIntList extends FlatLists.AbstractFlatList<Integer> {
   @Override public boolean equals(Object obj) {
     return this == obj
         || obj instanceof ImmutableIntList
-        && Arrays.equals(ints, ((ImmutableIntList) obj).ints)
-        || obj instanceof List
-        && obj.equals(this);
+        ? Arrays.equals(ints, ((ImmutableIntList) obj).ints)
+        : obj instanceof List
+            && obj.equals(this);
   }
 
   @Override public String toString() {
@@ -131,7 +146,7 @@ public class ImmutableIntList extends FlatLists.AbstractFlatList<Integer> {
           : (T[]) Array.newInstance(
               a.getClass().getComponentType(), size);
     }
-    if (a.getClass() == Integer[].class) {
+    if ((Class) a.getClass() == Integer[].class) {
       final Integer[] integers = (Integer[]) a;
       for (int i = 0; i < integers.length; i++) {
         integers[i] = ints[i];
@@ -219,6 +234,15 @@ public class ImmutableIntList extends FlatLists.AbstractFlatList<Integer> {
         return upper - lower;
       }
     };
+  }
+
+  /** Returns the identity list [0, ..., count - 1]. */
+  public static ImmutableIntList identity(int count) {
+    final int[] integers = new int[count];
+    for (int i = 0; i < integers.length; i++) {
+      integers[i] = i;
+    }
+    return new ImmutableIntList(integers);
   }
 
   /** Special sub-class of {@link ImmutableIntList} that is always

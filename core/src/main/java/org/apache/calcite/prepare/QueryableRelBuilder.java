@@ -40,7 +40,6 @@ import org.apache.calcite.linq4j.function.Predicate1;
 import org.apache.calcite.linq4j.function.Predicate2;
 import org.apache.calcite.linq4j.tree.FunctionExpression;
 import org.apache.calcite.rel.RelNode;
-import org.apache.calcite.rel.core.Project;
 import org.apache.calcite.rel.logical.LogicalFilter;
 import org.apache.calcite.rel.logical.LogicalProject;
 import org.apache.calcite.rel.logical.LogicalTableScan;
@@ -102,7 +101,7 @@ class QueryableRelBuilder<T> implements QueryableFactory<T> {
       if (table instanceof TranslatableTable) {
         return ((TranslatableTable) table).toRel(translator, relOptTable);
       } else {
-        return new LogicalTableScan(translator.cluster, relOptTable);
+        return LogicalTableScan.create(translator.cluster, relOptTable);
       }
     }
     return translator.translate(queryable.getExpression());
@@ -511,12 +510,7 @@ class QueryableRelBuilder<T> implements QueryableFactory<T> {
     RelNode child = toRel(source);
     List<RexNode> nodes = translator.toRexList(selector, child);
     setRel(
-        new LogicalProject(
-            translator.cluster,
-            child,
-            nodes,
-            null,
-            Project.Flags.BOXED));
+        LogicalProject.create(child, nodes, (List<String>)  null));
     return null;
   }
 
@@ -723,7 +717,7 @@ class QueryableRelBuilder<T> implements QueryableFactory<T> {
       FunctionExpression<? extends Predicate1<T>> predicate) {
     RelNode child = toRel(source);
     RexNode node = translator.toRex(predicate, child);
-    setRel(new LogicalFilter(translator.cluster, child, node));
+    setRel(LogicalFilter.create(child, node));
     return source;
   }
 

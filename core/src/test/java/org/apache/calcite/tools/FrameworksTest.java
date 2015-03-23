@@ -37,9 +37,12 @@ import org.apache.calcite.schema.SchemaPlus;
 import org.apache.calcite.schema.Table;
 import org.apache.calcite.schema.impl.AbstractTable;
 import org.apache.calcite.server.CalciteServerStatement;
+import org.apache.calcite.sql.SqlDialect;
 import org.apache.calcite.sql.SqlExplainLevel;
+import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.calcite.sql.type.SqlTypeName;
+import org.apache.calcite.test.CalciteAssert;
 import org.apache.calcite.util.Util;
 
 import org.junit.Test;
@@ -81,9 +84,7 @@ public class FrameworksTest {
                 table.getRowType(typeFactory)) {
             };
             final EnumerableTableScan tableRel =
-                new EnumerableTableScan(
-                    cluster, cluster.traitSetOf(EnumerableConvention.INSTANCE),
-                    relOptTable, Object[].class);
+                EnumerableTableScan.create(cluster, relOptTable);
 
             // "WHERE i > 1"
             final RexBuilder rexBuilder = cluster.getRexBuilder();
@@ -93,13 +94,13 @@ public class FrameworksTest {
                         rexBuilder.makeRangeReference(tableRel), "i", true),
                     rexBuilder.makeExactLiteral(BigDecimal.ONE));
             final LogicalFilter filter =
-                new LogicalFilter(cluster, tableRel, condition);
+                LogicalFilter.create(tableRel, condition);
 
             // Specify that the result should be in Enumerable convention.
             final RelNode rootRel = filter;
             final RelOptPlanner planner = cluster.getPlanner();
-            RelTraitSet desiredTraits = rootRel.getTraitSet().replace(
-                EnumerableConvention.INSTANCE);
+            RelTraitSet desiredTraits =
+                cluster.traitSet().replace(EnumerableConvention.INSTANCE);
             final RelNode rootRel2 = planner.changeTraits(rootRel,
                 desiredTraits);
             planner.setRoot(rootRel2);
@@ -159,6 +160,32 @@ public class FrameworksTest {
             return null;
           }
         });
+  }
+
+  /** Tests that the validator expands identifiers by default.
+   *
+   * <p>Test case for
+   * [<a href="https://issues.apache.org/jira/browse/CALCITE-593">CALCITE-593</a>]
+   * "Validator in Frameworks should expand identifiers".
+   */
+  @Test public void testFrameworksValidatorWithIdentifierExpansion()
+      throws Exception {
+    final SchemaPlus rootSchema = Frameworks.createRootSchema(true);
+    final FrameworkConfig config = Frameworks.newConfigBuilder()
+        .defaultSchema(
+            CalciteAssert.addSchema(rootSchema, CalciteAssert.SchemaSpec.HR))
+        .build();
+    final Planner planner = Frameworks.getPlanner(config);
+    SqlNode parse = planner.parse("select * from \"emps\" ");
+    SqlNode val = planner.validate(parse);
+
+    String valStr =
+        val.toSqlString(SqlDialect.DUMMY, false).getSql();
+
+    String expandedStr =
+        "SELECT `emps`.`empid`, `emps`.`deptno`, `emps`.`name`, `emps`.`salary`, `emps`.`commission`\n"
+            + "FROM `hr`.`emps` AS `emps`";
+    assertThat(valStr, equalTo(expandedStr));
   }
 
   /** Dummy type system, similar to Hive's, accessed via an INSTANCE member. */

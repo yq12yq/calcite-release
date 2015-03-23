@@ -6,15 +6,15 @@ adapters.
 ## Building from a source distribution
 
 Prerequisites are maven (3.2.1 or later)
-and Java (JDK 1.6 or later, 1.8 preferred) on your path.
+and Java (JDK 1.7 or later, 1.8 preferred) on your path.
 
 Unpack the source distribution `.tar.gz` or `.zip` file,
 `cd` to the root directory of the unpacked source,
 then build using maven:
 
 ```bash
-$ tar xvfz calcite-1.0.0-incubating-source.tar.gz
-$ cd calcite-1.0.0-incubating
+$ tar xvfz calcite-1.1.0-incubating-source.tar.gz
+$ cd calcite-1.1.0-incubating
 $ mvn install
 ```
 
@@ -24,7 +24,7 @@ tests.
 ## Building from git
 
 Prerequisites are git, maven (3.2.1 or later)
-and Java (JDK 1.6 or later, 1.8 preferred) on your path.
+and Java (JDK 1.7 or later, 1.8 preferred) on your path.
 
 Create a local copy of the github repository,
 `cd` to its root directory,
@@ -283,14 +283,14 @@ the `KEYS` file.
 
 Before you start:
 * Set up signing keys as described above.
-* Make sure you are using JDK 1.7 (not 1.6 or 1.8).
+* Make sure you are using JDK 1.7 (not 1.8).
 * Make sure build and tests succeed with `-Dcalcite.test.db=hsqldb` (the default)
 
 ```bash
-# set passphrase variable without putting it into shell history
+# Set passphrase variable without putting it into shell history
 read -s GPG_PASSPHRASE
 
-# make sure that there are no junk files in the sandbox
+# Make sure that there are no junk files in the sandbox
 git clean -xn
 mvn clean
 
@@ -303,7 +303,7 @@ When the dry-run has succeeded, change `install` to `deploy`.
 
 Before you start:
 * Set up signing keys as described above.
-* Make sure you are using JDK 1.7 (not 1.6 or 1.8).
+* Make sure you are using JDK 1.7 (not 1.8).
 * Check that `README`, `README.md` and `HOWTO.md` have the correct version number.
 * Make sure build and tests succeed, including with
   -Dcalcite.test.db={mysql,hsqldb}, -Dcalcite.test.slow=true,
@@ -334,7 +334,6 @@ git clean -xn
 mvn clean
 
 # Do a dry run of the release:prepare step, which sets version numbers.
-mvn clean
 mvn -DdryRun=true -DskipTests -DreleaseVersion=X.Y.Z-incubating -DdevelopmentVersion=X.Y.Z+1-incubating-SNAPSHOT -Papache-release -Darguments="-Dgpg.passphrase=${GPG_PASSPHRASE}" release:prepare 2>&1 | tee /tmp/prepare-dry.log
 ```
 

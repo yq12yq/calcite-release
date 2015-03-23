@@ -14,17 +14,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.calcite.jdbc;
 
 /**
- * Implementation of {@link org.apache.calcite.avatica.AvaticaFactory}
- * for Calcite and JDBC 4.0 (corresponds to JDK 1.6).
+ * Defines relational expressions for streaming.
+ *
+ * <h2>Related packages and classes</h2>
+ * <ul>
+ *
+ * <li>Package <code>
+ * <a href="../core/package-summary.html">org.apache.calcite.rel.core</a></code>
+ * contains core relational expressions
+ *
+ * </ul>
  */
-public class CalciteJdbc40Factory extends CalciteJdbc41Factory {
-  /** Creates a factory for JDBC version 4.1. */
-  public CalciteJdbc40Factory() {
-    super(4, 0);
-  }
-}
+@PackageMarker
+package org.apache.calcite.rel.stream;
 
-// End CalciteJdbc40Factory.java
+import org.apache.calcite.avatica.util.PackageMarker;
+
+// End package-info.java

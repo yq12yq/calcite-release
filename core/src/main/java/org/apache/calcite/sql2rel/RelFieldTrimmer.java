@@ -36,6 +36,7 @@ import org.apache.calcite.rel.core.TableScan;
 import org.apache.calcite.rel.logical.LogicalTableFunctionScan;
 import org.apache.calcite.rel.logical.LogicalTableModify;
 import org.apache.calcite.rel.logical.LogicalValues;
+import org.apache.calcite.rel.metadata.RelMetadataQuery;
 import org.apache.calcite.rel.rules.ProjectRemoveRule;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeField;
@@ -106,7 +107,6 @@ public class RelFieldTrimmer implements ReflectiveVisitor {
   private final RelFactories.SortFactory sortFactory;
   private final RelFactories.AggregateFactory aggregateFactory;
   private final RelFactories.SetOpFactory setOpFactory;
-  private final boolean useNamesInIdentityProjCalc;
 
   //~ Constructors -----------------------------------------------------------
 
@@ -139,36 +139,6 @@ public class RelFieldTrimmer implements ReflectiveVisitor {
       RelFactories.SortFactory sortFactory,
       RelFactories.AggregateFactory aggregateFactory,
       RelFactories.SetOpFactory setOpFactory) {
-    this(validator, projectFactory, filterFactory, joinFactory,
-         semiJoinFactory, sortFactory, aggregateFactory, setOpFactory,
-         false);
-  }
-
-  /**
-   * Creates a RelFieldTrimmer.
-   *
-   * @param validator Validator
-   * @param projectFactory Project factory
-   * @param filterFactory Filter factory
-   * @param joinFactory Join factory
-   * @param semiJoinFactory SemiJoin factory
-   * @param sortFactory Sort factory
-   * @param aggregateFactory Aggregate factory
-   * @param setOpFactory SetOp factory
-   * @param useNamesInIdentityProjCalc
-   *            Include field names in identity project determination
-   *
-   * @deprecated Remove before
-   * {@link org.apache.calcite.util.Bug#upgrade Calcite-1.1}. */
-  public RelFieldTrimmer(SqlValidator validator,
-      RelFactories.ProjectFactory projectFactory,
-      RelFactories.FilterFactory filterFactory,
-      RelFactories.JoinFactory joinFactory,
-      RelFactories.SemiJoinFactory semiJoinFactory,
-      RelFactories.SortFactory sortFactory,
-      RelFactories.AggregateFactory aggregateFactory,
-      RelFactories.SetOpFactory setOpFactory,
-      boolean useNamesInIdentityProjCalc) {
     Util.discard(validator); // may be useful one day
     this.trimFieldsDispatcher =
         ReflectUtil.createMethodDispatcher(
@@ -185,7 +155,6 @@ public class RelFieldTrimmer implements ReflectiveVisitor {
     this.sortFactory = Preconditions.checkNotNull(sortFactory);
     this.aggregateFactory = Preconditions.checkNotNull(aggregateFactory);
     this.setOpFactory = Preconditions.checkNotNull(setOpFactory);
-    this.useNamesInIdentityProjCalc = useNamesInIdentityProjCalc;
   }
 
   //~ Methods ----------------------------------------------------------------
@@ -230,6 +199,13 @@ public class RelFieldTrimmer implements ReflectiveVisitor {
       // MedMdrClassExtentRel, only naked MedMdrClassExtentRel.
       // So, disable trimming.
       fieldsUsed = ImmutableBitSet.range(input.getRowType().getFieldCount());
+    }
+    final ImmutableList<RelCollation> collations =
+        RelMetadataQuery.collations(rel);
+    for (RelCollation collation : collations) {
+      for (RelFieldCollation fieldCollation : collation.getFieldCollations()) {
+        fieldsUsed = fieldsUsed.set(fieldCollation.getFieldIndex());
+      }
     }
     return dispatchTrimFields(input, fieldsUsed, extraFields);
   }
@@ -387,8 +363,7 @@ public class RelFieldTrimmer implements ReflectiveVisitor {
     }
 
     // Build new project expressions, and populate the mapping.
-    List<RexNode> newProjectExprList =
-        new ArrayList<RexNode>();
+    final List<RexNode> newProjects = new ArrayList<>();
     final RexVisitor<RexNode> shuttle =
         new RexPermuteInputsShuttle(
             inputMapping, newInput);
@@ -399,9 +374,9 @@ public class RelFieldTrimmer implements ReflectiveVisitor {
             fieldsUsed.cardinality());
     for (Ord<RexNode> ord : Ord.zip(project.getProjects())) {
       if (fieldsUsed.get(ord.i)) {
-        mapping.set(ord.i, newProjectExprList.size());
+        mapping.set(ord.i, newProjects.size());
         RexNode newProjectExpr = ord.e.accept(shuttle);
-        newProjectExprList.add(newProjectExpr);
+        newProjects.add(newProjectExpr);
       }
     }
 
@@ -410,26 +385,16 @@ public class RelFieldTrimmer implements ReflectiveVisitor {
             mapping);
 
     final RelNode newProject;
-    if (isIdentityProject(newProjectExprList, newRowType,
-                                   newInput.getRowType())) {
+    if (ProjectRemoveRule.isIdentity(newProjects, newInput.getRowType())) {
       // The new project would be the identity. It is equivalent to return
       // its child.
       newProject = newInput;
     } else {
-      newProject = projectFactory.createProject(newInput, newProjectExprList,
+      newProject = projectFactory.createProject(newInput, newProjects,
           newRowType.getFieldNames());
       assert newProject.getClass() == project.getClass();
     }
     return new TrimResult(newProject, mapping);
-  }
-
-  private boolean isIdentityProject(List<? extends RexNode> exps,
-    RelDataType rowType, RelDataType childRowType) {
-    if (this.useNamesInIdentityProjCalc) {
-      return ProjectRemoveRule.isIdentity(exps, rowType, childRowType);
-    } else {
-      return ProjectRemoveRule.isIdentity(exps, childRowType);
-    }
   }
 
   /** Creates a project with a dummy column, to protect the parts of the system
@@ -802,7 +767,7 @@ public class RelFieldTrimmer implements ReflectiveVisitor {
     }
 
     // Create input with trimmed columns.
-    final RelNode input = aggregate.getInput(0);
+    final RelNode input = aggregate.getInput();
     final Set<RelDataTypeField> inputExtraFields = Collections.emptySet();
     final TrimResult trimResult =
         trimChild(aggregate, input, inputFieldsUsed.build(), inputExtraFields);
@@ -1014,7 +979,8 @@ public class RelFieldTrimmer implements ReflectiveVisitor {
         RelOptUtil.permute(values.getCluster().getTypeFactory(), rowType,
             mapping);
     final LogicalValues newValues =
-        new LogicalValues(values.getCluster(), newRowType, newTuples.build());
+        LogicalValues.create(values.getCluster(), newRowType,
+            newTuples.build());
     return new TrimResult(newValues, mapping);
   }
 

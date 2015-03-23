@@ -24,8 +24,6 @@ import org.apache.calcite.plan.RelOptCost;
 import org.apache.calcite.plan.RelOptPlanner;
 import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.plan.RelTraitSet;
-import org.apache.calcite.rel.RelCollation;
-import org.apache.calcite.rel.RelCollationTraitDef;
 import org.apache.calcite.rel.RelInput;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.RelWriter;
@@ -56,10 +54,6 @@ import java.util.List;
  * Relational expression that computes a set of
  * 'select expressions' from its input relational expression.
  *
- * <p>The result is usually 'boxed' as a record with one named field for each
- * column; if there is precisely one expression, the result may be 'unboxed',
- * and consist of the raw value type.
- *
  * @see org.apache.calcite.rel.logical.LogicalProject
  */
 public abstract class Project extends SingleRel {
@@ -67,54 +61,46 @@ public abstract class Project extends SingleRel {
 
   protected final ImmutableList<RexNode> exps;
 
-  /**
-   * Values defined in {@link Flags}.
-   */
-  protected int flags;
-
-  protected final ImmutableList<RelCollation> collationList;
-
   //~ Constructors -----------------------------------------------------------
 
   /**
    * Creates a Project.
    *
-   * @param cluster Cluster that this relational expression belongs to
-   * @param traits  traits of this rel
-   * @param input   input relational expression
-   * @param exps    List of expressions for the input columns
-   * @param rowType output row type
-   * @param flags      Flags; values as in {@link Project.Flags},
-   *                   usually {@link Project.Flags#BOXED}
+   * @param cluster  Cluster that this relational expression belongs to
+   * @param traits   Traits of this relational expression
+   * @param input    Input relational expression
+   * @param projects List of expressions for the input columns
+   * @param rowType  Output row type
    */
   protected Project(
       RelOptCluster cluster,
       RelTraitSet traits,
       RelNode input,
-      List<? extends RexNode> exps,
-      RelDataType rowType,
-      int flags) {
+      List<? extends RexNode> projects,
+      RelDataType rowType) {
     super(cluster, traits, input);
     assert rowType != null;
-    this.exps = ImmutableList.copyOf(exps);
+    this.exps = ImmutableList.copyOf(projects);
     this.rowType = rowType;
-    this.flags = flags;
-    final RelCollation collation =
-        traits.getTrait(RelCollationTraitDef.INSTANCE);
-    this.collationList =
-        collation == null
-            ? ImmutableList.<RelCollation>of()
-            : ImmutableList.of(collation);
     assert isValid(true);
+  }
+
+  @Deprecated // to be removed before 2.0
+  protected Project(RelOptCluster cluster, RelTraitSet traitSet, RelNode input,
+      List<? extends RexNode> projects, RelDataType rowType, int flags) {
+    this(cluster, traitSet, input, projects, rowType);
+    Util.discard(flags);
   }
 
   /**
    * Creates a Project by parsing serialized output.
    */
   protected Project(RelInput input) {
-    this(input.getCluster(), input.getTraitSet(), input.getInput(),
+    this(input.getCluster(),
+        input.getTraitSet(),
+        input.getInput(),
         input.getExpressionList("exprs"),
-        input.getRowType("exprs", "fields"), Flags.BOXED);
+        input.getRowType("exprs", "fields"));
   }
 
   //~ Methods ----------------------------------------------------------------
@@ -129,7 +115,7 @@ public abstract class Project extends SingleRel {
    *
    * @param traitSet Traits
    * @param input Input
-   * @param exps Project expressions
+   * @param projects Project expressions
    * @param rowType Output row type
    * @return New {@code Project} if any parameter differs from the value of this
    *   {@code Project}, or just {@code this} if all the parameters are
@@ -138,14 +124,18 @@ public abstract class Project extends SingleRel {
    * @see #copy(RelTraitSet, List)
    */
   public abstract Project copy(RelTraitSet traitSet, RelNode input,
-      List<RexNode> exps, RelDataType rowType);
+      List<RexNode> projects, RelDataType rowType);
 
-  public List<RelCollation> getCollationList() {
-    return collationList;
+  @Deprecated // to be removed before 2.0
+  public Project copy(RelTraitSet traitSet, RelNode input,
+      List<RexNode> projects, RelDataType rowType, int flags) {
+    Util.discard(flags);
+    return copy(traitSet, input, projects, rowType);
   }
 
+  @Deprecated // to be removed before 2.0
   public boolean isBoxed() {
-    return (flags & Flags.BOXED) == Flags.BOXED;
+    return true;
   }
 
   @Override public List<RexNode> getChildExps() {
@@ -179,8 +169,9 @@ public abstract class Project extends SingleRel {
     return Pair.zip(getProjects(), getRowType().getFieldNames());
   }
 
+  @Deprecated // to be removed before 2.0
   public int getFlags() {
-    return flags;
+    return 1;
   }
 
   public boolean isValid(boolean fail) {
@@ -202,22 +193,6 @@ public abstract class Project extends SingleRel {
       exp.accept(checker);
     }
     if (checker.getFailureCount() > 0) {
-      assert !fail;
-      return false;
-    }
-    if (!isBoxed()) {
-      if (exps.size() != 1) {
-        assert !fail;
-        return false;
-      }
-    }
-    if (collationList == null) {
-      assert !fail;
-      return false;
-    }
-    if (!collationList.isEmpty()
-        && collationList.get(0)
-        != traitSet.getTrait(RelCollationTraitDef.INSTANCE)) {
       assert !fail;
       return false;
     }
@@ -297,17 +272,18 @@ public abstract class Project extends SingleRel {
    * Every target has a source field, but
    * a source field may appear as zero, one, or more target fields.
    * Thus you can safely call
-   * {@link Mappings.TargetMapping#getTarget(int)}.
+   * {@link org.apache.calcite.util.mapping.Mappings.TargetMapping#getTarget(int)}.
    *
    * @param inputFieldCount Number of input fields
    * @param projects Project expressions
-   * @return Mapping of a set of project expressions
+   * @return Mapping of a set of project expressions, or null if projection is
+   * not a mapping
    */
   public static Mappings.TargetMapping getMapping(int inputFieldCount,
-      List<RexNode> projects) {
+      List<? extends RexNode> projects) {
     Mappings.TargetMapping mapping =
-        Mappings.create(MappingType.INVERSE_SURJECTION, inputFieldCount,
-            projects.size());
+        Mappings.create(MappingType.INVERSE_SURJECTION,
+            inputFieldCount, projects.size());
     for (Ord<RexNode> exp : Ord.zip(projects)) {
       if (!(exp.e instanceof RexInputRef)) {
         return null;
@@ -318,20 +294,55 @@ public abstract class Project extends SingleRel {
   }
 
   /**
+   * Returns a partial mapping of a set of project expressions.
+   *
+   * <p>The mapping is an inverse function.
+   * Every target has a source field, but
+   * a source might have 0, 1 or more targets.
+   * Project expressions that do not consist of
+   * a mapping are ignored.
+   *
+   * @param inputFieldCount Number of input fields
+   * @param projects Project expressions
+   * @return Mapping of a set of project expressions, never null
+   */
+  public static Mappings.TargetMapping getPartialMapping(int inputFieldCount,
+      List<? extends RexNode> projects) {
+    Mappings.TargetMapping mapping =
+        Mappings.create(MappingType.INVERSE_FUNCTION,
+            inputFieldCount, projects.size());
+    for (Ord<RexNode> exp : Ord.zip(projects)) {
+      if (exp.e instanceof RexInputRef) {
+        mapping.set(((RexInputRef) exp.e).getIndex(), exp.i);
+      }
+    }
+    return mapping;
+  }
+
+  /**
    * Returns a permutation, if this projection is merely a permutation of its
-   * input fields, otherwise null.
+   * input fields; otherwise null.
    *
    * @return Permutation, if this projection is merely a permutation of its
-   *   input fields, otherwise null
+   *   input fields; otherwise null
    */
   public Permutation getPermutation() {
-    final int fieldCount = rowType.getFieldList().size();
-    if (fieldCount != getInput().getRowType().getFieldList().size()) {
+    return getPermutation(getInput().getRowType().getFieldCount(), exps);
+  }
+
+  /**
+   * Returns a permutation, if this projection is merely a permutation of its
+   * input fields; otherwise null.
+   */
+  public static Permutation getPermutation(int inputFieldCount,
+      List<? extends RexNode> projects) {
+    final int fieldCount = projects.size();
+    if (fieldCount != inputFieldCount) {
       return null;
     }
     Permutation permutation = new Permutation(fieldCount);
     for (int i = 0; i < fieldCount; ++i) {
-      final RexNode exp = exps.get(i);
+      final RexNode exp = projects.get(i);
       if (exp instanceof RexInputRef) {
         permutation.set(i, ((RexInputRef) exp).getIndex());
       } else {
@@ -357,21 +368,13 @@ public abstract class Project extends SingleRel {
 
   //~ Inner Classes ----------------------------------------------------------
 
-  /** A collection of integer constants that describe the kind of project. */
+  /** No longer used. */
+  @Deprecated // to be removed before 2.0
   public static class Flags {
     public static final int ANON_FIELDS = 2;
-
-    /**
-     * Whether the resulting row is to be a synthetic class whose fields are
-     * the aliases of the fields. <code>boxed</code> must be true unless
-     * there is only one field: <code>select {dept.deptno} from dept</code>
-     * is boxed, <code>select dept.deptno from dept</code> is not.
-     */
     public static final int BOXED = 1;
     public static final int NONE = 0;
   }
-
-  //~ Inner Classes ----------------------------------------------------------
 
   /**
    * Visitor which walks over a program and checks validity.

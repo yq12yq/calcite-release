@@ -473,11 +473,14 @@ public class UtilTest {
         Util.toPosix(TimeZone.getTimeZone("Australia/Sydney"), true);
 
     if (posixTime.equals("EST10EST1,M10.5.0/2,M3.5.0/3")) {
-      // older JVMs without the fix
+      // very old JVMs without the fix
       assertEquals("EST10EST1,M10.5.0/2,M3.5.0/3", posixTime);
+    } else if (posixTime.equals("EST10EST1,M10.1.0/2,M4.1.0/3")) {
+      // old JVMs without the fix
+      assertEquals("EST10EST1,M10.1.0/2,M4.1.0/3", posixTime);
     } else {
       // newer JVMs with the fix
-      assertEquals("EST10EST1,M10.1.0/2,M4.1.0/3", posixTime);
+      assertEquals("AEST10AEDT1,M10.1.0/2,M4.1.0/3", posixTime);
     }
 
     // Paris, France. (Uses UTC_TIME time-transition mode.)
@@ -871,21 +874,28 @@ public class UtilTest {
   }
 
   @Test public void testImmutableIntList() {
-    ImmutableIntList list = ImmutableIntList.of();
+    final ImmutableIntList list = ImmutableIntList.of();
     assertEquals(0, list.size());
     assertEquals(list, Collections.<Integer>emptyList());
     assertThat(list.toString(), equalTo("[]"));
     assertThat(BitSets.of(list), equalTo(new BitSet()));
 
-    list = ImmutableIntList.of(1, 3, 5);
-    assertEquals(3, list.size());
-    assertEquals("[1, 3, 5]", list.toString());
-    assertEquals(list.hashCode(), Arrays.asList(1, 3, 5).hashCode());
+    final ImmutableIntList list2 = ImmutableIntList.of(1, 3, 5);
+    assertEquals(3, list2.size());
+    assertEquals("[1, 3, 5]", list2.toString());
+    assertEquals(list2.hashCode(), Arrays.asList(1, 3, 5).hashCode());
 
-    Integer[] integers = list.toArray(new Integer[3]);
+    Integer[] integers = list2.toArray(new Integer[3]);
     assertEquals(1, (int) integers[0]);
     assertEquals(3, (int) integers[1]);
     assertEquals(5, (int) integers[2]);
+
+    //noinspection EqualsWithItself
+    assertThat(list.equals(list), is(true));
+    assertThat(list.equals(list2), is(false));
+    assertThat(list2.equals(list), is(false));
+    //noinspection EqualsWithItself
+    assertThat(list2.equals(list2), is(true));
   }
 
   /**
@@ -1291,6 +1301,18 @@ public class UtilTest {
     } catch (UnsupportedOperationException e) {
       // ok
     }
+  }
+
+  /** Test for {@link org.apache.calcite.util.ImmutableNullableList.Builder}. */
+  @Test public void testImmutableNullableListBuilder() {
+    final ImmutableNullableList.Builder<String> builder =
+        ImmutableNullableList.builder();
+    builder.add("a")
+        .add((String) null)
+        .add("c");
+    final List<String> arrayList = Arrays.asList("a", null, "c");
+    final List<String> list = builder.build();
+    assertThat(arrayList.equals(list), is(true));
   }
 
   @Test public void testHuman() {

@@ -27,7 +27,7 @@ import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.prepare.Prepare;
 import org.apache.calcite.prepare.RelOptTableImpl;
 import org.apache.calcite.rel.RelCollation;
-import org.apache.calcite.rel.RelCollationImpl;
+import org.apache.calcite.rel.RelCollations;
 import org.apache.calcite.rel.RelFieldCollation;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.RelShuttle;
@@ -40,7 +40,6 @@ import org.apache.calcite.rel.core.JoinInfo;
 import org.apache.calcite.rel.core.JoinRelType;
 import org.apache.calcite.rel.core.Project;
 import org.apache.calcite.rel.core.Sample;
-import org.apache.calcite.rel.core.Sort;
 import org.apache.calcite.rel.core.Uncollect;
 import org.apache.calcite.rel.logical.LogicalAggregate;
 import org.apache.calcite.rel.logical.LogicalCorrelate;
@@ -48,12 +47,14 @@ import org.apache.calcite.rel.logical.LogicalIntersect;
 import org.apache.calcite.rel.logical.LogicalJoin;
 import org.apache.calcite.rel.logical.LogicalMinus;
 import org.apache.calcite.rel.logical.LogicalProject;
+import org.apache.calcite.rel.logical.LogicalSort;
 import org.apache.calcite.rel.logical.LogicalTableFunctionScan;
 import org.apache.calcite.rel.logical.LogicalTableModify;
 import org.apache.calcite.rel.logical.LogicalTableScan;
 import org.apache.calcite.rel.logical.LogicalUnion;
 import org.apache.calcite.rel.logical.LogicalValues;
 import org.apache.calcite.rel.metadata.RelColumnMapping;
+import org.apache.calcite.rel.stream.LogicalDelta;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rel.type.RelDataTypeField;
@@ -524,6 +525,9 @@ public class SqlToRelConverter {
     }
 
     RelNode result = convertQueryRecursive(query, top, null);
+    if (top && isStream(query)) {
+      result = new LogicalDelta(cluster, result.getTraitSet(), result);
+    }
     checkConvertedType(query, result);
 
     boolean dumpPlan = SQL2REL_LOGGER.isLoggable(Level.FINE);
@@ -537,6 +541,11 @@ public class SqlToRelConverter {
     }
 
     return result;
+  }
+
+  private static boolean isStream(SqlNode query) {
+    return query instanceof SqlSelect
+        && ((SqlSelect) query).isKeywordPresent(SqlSelectKeyword.STREAM);
   }
 
   protected boolean checkConvertedRowType(
@@ -602,7 +611,7 @@ public class SqlToRelConverter {
         orderExprList,
         collationList);
     final RelCollation collation =
-        cluster.traitSetOf().canonize(RelCollationImpl.of(collationList));
+        cluster.traitSet().canonize(RelCollations.of(collationList));
 
     if (validator.isAggregate(select)) {
       convertAgg(
@@ -674,13 +683,8 @@ public class SqlToRelConverter {
         }
       }
       rel =
-          new LogicalProject(
-              cluster,
-              rel,
-              Pair.left(newProjects),
-              Pair.right(newProjects),
-              LogicalProject.Flags.BOXED);
-
+          LogicalProject.create(rel, Pair.left(newProjects),
+              Pair.right(newProjects));
       bb.root = rel;
       distinctify(bb, false);
       rel = bb.root;
@@ -699,13 +703,8 @@ public class SqlToRelConverter {
       }
 
       rel =
-          new LogicalProject(
-              cluster,
-              rel,
-              Pair.left(undoProjects),
-              Pair.right(undoProjects),
-              LogicalProject.Flags.BOXED);
-
+          LogicalProject.create(rel, Pair.left(undoProjects),
+              Pair.right(undoProjects));
       bb.setRoot(
           rel,
           false);
@@ -764,11 +763,7 @@ public class SqlToRelConverter {
 
     // Create a sorter using the previously constructed collations.
     bb.setRoot(
-        new Sort(
-            cluster,
-            cluster.traitSetOf(Convention.NONE, collation),
-            bb.root,
-            collation,
+        LogicalSort.create(bb.root, collation,
             offset == null ? null : convertExpression(offset),
             fetch == null ? null : convertExpression(fetch)),
         false);
@@ -786,12 +781,11 @@ public class SqlToRelConverter {
       bb.setRoot(
           new LogicalProject(
               cluster,
-              cluster.traitSetOf(RelCollationImpl.PRESERVE),
+              cluster.traitSetOf(RelCollations.PRESERVE),
               bb.root,
               exprs,
               cluster.getTypeFactory().createStructType(
-                  rowType.getFieldList().subList(0, fieldCount)),
-              Project.Flags.BOXED),
+                  rowType.getFieldList().subList(0, fieldCount))),
           false);
     }
   }
@@ -1037,16 +1031,17 @@ public class SqlToRelConverter {
         final int keyCount = leftKeys.size();
         final List<Integer> args = ImmutableIntList.range(0, keyCount);
         LogicalAggregate aggregate =
-            new LogicalAggregate(cluster, seek, false, ImmutableBitSet.of(),
-                null,
+            LogicalAggregate.create(seek, false, ImmutableBitSet.of(), null,
                 ImmutableList.of(
                     new AggregateCall(SqlStdOperatorTable.COUNT, false,
                         ImmutableList.<Integer>of(), longType, null),
                     new AggregateCall(SqlStdOperatorTable.COUNT, false,
                         args, longType, null)));
         LogicalJoin join =
-            new LogicalJoin(cluster, bb.root, aggregate,
-                rexBuilder.makeLiteral(true), JoinRelType.INNER,
+            LogicalJoin.create(bb.root,
+                aggregate,
+                rexBuilder.makeLiteral(true),
+                JoinRelType.INNER,
                 ImmutableSet.<String>of());
         bb.setRoot(join, false);
       }
@@ -1161,7 +1156,7 @@ public class SqlToRelConverter {
       //   on e.deptno = dt.deptno
       final Join join = (Join) root;
       final Project left = (Project) join.getLeft();
-      final RelNode leftLeft = ((Join) left.getInput(0)).getLeft();
+      final RelNode leftLeft = ((Join) left.getInput()).getLeft();
       final int leftLeftCount = leftLeft.getRowType().getFieldCount();
       final RelDataType nullableBooleanType =
           typeFactory.createTypeWithNullability(
@@ -1494,10 +1489,7 @@ public class SqlToRelConverter {
       unionInputs.add(convertRowConstructor(bb, call));
     }
     LogicalValues values =
-        new LogicalValues(
-            cluster,
-            rowType,
-            tupleList.build());
+        LogicalValues.create(cluster, rowType, tupleList.build());
     RelNode resultRel;
     if (unionInputs.isEmpty()) {
       resultRel = values;
@@ -1505,12 +1497,7 @@ public class SqlToRelConverter {
       if (!values.getTuples().isEmpty()) {
         unionInputs.add(values);
       }
-      LogicalUnion union =
-          new LogicalUnion(
-              cluster,
-              unionInputs,
-              true);
-      resultRel = union;
+      resultRel = LogicalUnion.create(unionInputs, true);
     }
     leaves.add(resultRel);
     return resultRel;
@@ -1869,7 +1856,7 @@ public class SqlToRelConverter {
       if (shouldConvertTableAccess) {
         tableRel = toRel(table);
       } else {
-        tableRel = new LogicalTableScan(cluster, table);
+        tableRel = LogicalTableScan.create(cluster, table);
       }
       bb.setRoot(tableRel, true);
       if (usedDataset[0]) {
@@ -2011,8 +1998,7 @@ public class SqlToRelConverter {
     Set<RelColumnMapping> columnMappings =
         getColumnMappings(operator);
     LogicalTableFunctionScan callRel =
-        new LogicalTableFunctionScan(
-            cluster,
+        LogicalTableFunctionScan.create(cluster,
             inputs,
             rexCall,
             elementType,
@@ -2152,12 +2138,8 @@ public class SqlToRelConverter {
                   ImmutableSet.copyOf(Util.skip(correlNames)));
           rightRel = rightRel.accept(dedup);
         }
-        LogicalCorrelate corr = new LogicalCorrelate(
-            rightRel.getCluster(),
-            leftRel,
-            rightRel,
-            new CorrelationId(correlNames.get(0)),
-            requiredColumns.build(),
+        LogicalCorrelate corr = LogicalCorrelate.create(leftRel, rightRel,
+            new CorrelationId(correlNames.get(0)), requiredColumns.build(),
             SemiJoinType.of(joinType));
         if (!joinCond.isAlwaysTrue()) {
           return RelOptUtil.createFilter(corr, joinCond);
@@ -2239,7 +2221,7 @@ public class SqlToRelConverter {
                   + rightCount + extraRightExprs.size(),
               0, 0, leftCount,
               leftCount, leftCount + extraLeftExprs.size(), rightCount);
-      return RelOptUtil.project(join, mapping);
+      return RelOptUtil.createProject(join, mapping);
     }
     return join;
   }
@@ -2760,12 +2742,7 @@ public class SqlToRelConverter {
   protected RelNode createAggregate(Blackboard bb, boolean indicator,
       ImmutableBitSet groupSet, ImmutableList<ImmutableBitSet> groupSets,
       List<AggregateCall> aggCalls) {
-    return new LogicalAggregate(
-        cluster,
-        bb.root,
-        indicator,
-        groupSet,
-        groupSets,
+    return LogicalAggregate.create(bb.root, indicator, groupSet, groupSets,
         aggCalls);
   }
 
@@ -2964,18 +2941,12 @@ public class SqlToRelConverter {
     }
     switch (call.getKind()) {
     case UNION:
-      return new LogicalUnion(
-          cluster,
-          ImmutableList.of(left, right),
-          all);
+      return LogicalUnion.create(ImmutableList.of(left, right), all);
 
     case INTERSECT:
       // TODO:  all
       if (!all) {
-        return new LogicalIntersect(
-            cluster,
-            ImmutableList.of(left, right),
-            all);
+        return LogicalIntersect.create(ImmutableList.of(left, right), all);
       } else {
         throw Util.newInternal(
             "set operator INTERSECT ALL not suported");
@@ -2984,10 +2955,7 @@ public class SqlToRelConverter {
     case EXCEPT:
       // TODO:  all
       if (!all) {
-        return new LogicalMinus(
-            cluster,
-            ImmutableList.of(left, right),
-            all);
+        return LogicalMinus.create(ImmutableList.of(left, right), all);
       } else {
         throw Util.newInternal(
             "set operator EXCEPT ALL not suported");
@@ -3023,14 +2991,8 @@ public class SqlToRelConverter {
           null,
           false);
     }
-    return new LogicalTableModify(
-        cluster,
-        targetTable,
-        catalogReader,
-        massagedRel,
-        LogicalTableModify.Operation.INSERT,
-        null,
-        false);
+    return LogicalTableModify.create(targetTable, catalogReader, massagedRel,
+        LogicalTableModify.Operation.INSERT, null, false);
   }
 
   private RelOptTable.ToRelContext createToRelContext() {
@@ -3171,14 +3133,8 @@ public class SqlToRelConverter {
   private RelNode convertDelete(SqlDelete call) {
     RelOptTable targetTable = getTargetTable(call);
     RelNode sourceRel = convertSelect(call.getSourceSelect());
-    return new LogicalTableModify(
-        cluster,
-        targetTable,
-        catalogReader,
-        sourceRel,
-        LogicalTableModify.Operation.DELETE,
-        null,
-        false);
+    return LogicalTableModify.create(targetTable, catalogReader, sourceRel,
+        LogicalTableModify.Operation.DELETE, null, false);
   }
 
   private RelNode convertUpdate(SqlUpdate call) {
@@ -3194,14 +3150,8 @@ public class SqlToRelConverter {
 
     RelNode sourceRel = convertSelect(call.getSourceSelect());
 
-    return new LogicalTableModify(
-        cluster,
-        targetTable,
-        catalogReader,
-        sourceRel,
-        LogicalTableModify.Operation.UPDATE,
-        targetColumnNameList,
-        false);
+    return LogicalTableModify.create(targetTable, catalogReader, sourceRel,
+        LogicalTableModify.Operation.UPDATE, targetColumnNameList, false);
   }
 
   private RelNode convertMerge(SqlMerge call) {
@@ -3277,14 +3227,8 @@ public class SqlToRelConverter {
     RelNode massagedRel =
         RelOptUtil.createProject(join, projects, null, true);
 
-    return new LogicalTableModify(
-        cluster,
-        targetTable,
-        catalogReader,
-        massagedRel,
-        LogicalTableModify.Operation.MERGE,
-        targetColumnNameList,
-        false);
+    return LogicalTableModify.create(targetTable, catalogReader, massagedRel,
+        LogicalTableModify.Operation.MERGE, targetColumnNameList, false);
   }
 
   /**
@@ -3514,12 +3458,7 @@ public class SqlToRelConverter {
       RexNode condition,
       JoinRelType joinType,
       Set<String> variablesStopped) {
-    return new LogicalJoin(
-        cluster,
-        left,
-        right,
-        condition,
-        joinType,
+    return LogicalJoin.create(left, right, condition, joinType,
         variablesStopped);
   }
 
@@ -3699,10 +3638,7 @@ public class SqlToRelConverter {
           true);
     } else {
       bb.setRoot(
-          new LogicalUnion(
-              cluster,
-              unionRels,
-              true),
+          LogicalUnion.create(unionRels, true),
           true);
     }
 

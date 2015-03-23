@@ -20,9 +20,15 @@ import org.apache.calcite.plan.Convention;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.RelOptTable;
 import org.apache.calcite.plan.RelTraitSet;
+import org.apache.calcite.rel.RelCollation;
+import org.apache.calcite.rel.RelCollationTraitDef;
 import org.apache.calcite.rel.RelInput;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.TableScan;
+import org.apache.calcite.schema.Table;
+
+import com.google.common.base.Supplier;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -58,16 +64,16 @@ public final class LogicalTableScan extends TableScan {
   /**
    * Creates a LogicalTableScan.
    *
-   * @param cluster Cluster
-   * @param table   Table
+   * <p>Use {@link #create} unless you know what you're doing.
    */
-  public LogicalTableScan(
-      RelOptCluster cluster,
+  public LogicalTableScan(RelOptCluster cluster, RelTraitSet traitSet,
       RelOptTable table) {
-    super(
-        cluster,
-        cluster.traitSetOf(Convention.NONE),
-        table);
+    super(cluster, traitSet, table);
+  }
+
+  @Deprecated // to be removed before 2.0
+  public LogicalTableScan(RelOptCluster cluster, RelOptTable table) {
+    this(cluster, cluster.traitSetOf(Convention.NONE), table);
   }
 
   /**
@@ -81,6 +87,27 @@ public final class LogicalTableScan extends TableScan {
     assert traitSet.containsIfApplicable(Convention.NONE);
     assert inputs.isEmpty();
     return this;
+  }
+
+  /** Creates a LogicalTableScan.
+   *  @param cluster Cluster
+   * @param relOptTable Table
+   */
+  public static LogicalTableScan create(RelOptCluster cluster,
+      final RelOptTable relOptTable) {
+    final Table table = relOptTable.unwrap(Table.class);
+    final RelTraitSet traitSet =
+        cluster.traitSetOf(Convention.NONE)
+            .replaceIfs(RelCollationTraitDef.INSTANCE,
+                new Supplier<List<RelCollation>>() {
+                  public List<RelCollation> get() {
+                    if (table != null) {
+                      return table.getStatistic().getCollations();
+                    }
+                    return ImmutableList.of();
+                  }
+                });
+    return new LogicalTableScan(cluster, traitSet, relOptTable);
   }
 }
 

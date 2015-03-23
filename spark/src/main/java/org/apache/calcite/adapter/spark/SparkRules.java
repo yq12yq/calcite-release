@@ -41,7 +41,6 @@ import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.RelWriter;
 import org.apache.calcite.rel.SingleRel;
 import org.apache.calcite.rel.convert.ConverterRule;
-import org.apache.calcite.rel.core.Project;
 import org.apache.calcite.rel.core.Values;
 import org.apache.calcite.rel.logical.LogicalCalc;
 import org.apache.calcite.rel.logical.LogicalFilter;
@@ -56,6 +55,7 @@ import org.apache.calcite.rex.RexMultisetUtil;
 import org.apache.calcite.rex.RexProgram;
 import org.apache.calcite.util.BuiltInMethod;
 import org.apache.calcite.util.Pair;
+import org.apache.calcite.util.Util;
 
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
@@ -240,8 +240,7 @@ public abstract class SparkRules {
           rel.getTraitSet().replace(SparkRel.CONVENTION),
           convert(calc.getInput(),
               calc.getInput().getTraitSet().replace(SparkRel.CONVENTION)),
-          program,
-          Project.Flags.BOXED);
+          program);
     }
   }
 
@@ -250,22 +249,22 @@ public abstract class SparkRules {
   public static class SparkCalc extends SingleRel implements SparkRel {
     private final RexProgram program;
 
-    /**
-     * Values defined in {@link org.apache.calcite.rel.core.Project.Flags}.
-     */
-    protected int flags;
-
     public SparkCalc(RelOptCluster cluster,
         RelTraitSet traitSet,
-        RelNode child,
-        RexProgram program,
-        int flags) {
-      super(cluster, traitSet, child);
+        RelNode input,
+        RexProgram program) {
+      super(cluster, traitSet, input);
       assert getConvention() == SparkRel.CONVENTION;
       assert !program.containsAggs();
-      this.flags = flags;
       this.program = program;
       this.rowType = program.getOutputRowType();
+    }
+
+    @Deprecated // to be removed before 2.0
+    public SparkCalc(RelOptCluster cluster, RelTraitSet traitSet, RelNode input,
+        RexProgram program, int flags) {
+      this(cluster, traitSet, input, program);
+      Util.discard(flags);
     }
 
     @Override public RelWriter explainTerms(RelWriter pw) {
@@ -290,12 +289,12 @@ public abstract class SparkRules {
           getCluster(),
           traitSet,
           sole(inputs),
-          program,
-          getFlags());
+          program);
     }
 
+    @Deprecated // to be removed before 2.0
     public int getFlags() {
-      return flags;
+      return 1;
     }
 
     public Result implementSpark(Implementor implementor) {

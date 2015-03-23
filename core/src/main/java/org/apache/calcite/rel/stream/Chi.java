@@ -14,17 +14,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.calcite.avatica;
+package org.apache.calcite.rel.stream;
+
+import org.apache.calcite.plan.RelOptCluster;
+import org.apache.calcite.plan.RelTraitSet;
+import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.rel.SingleRel;
 
 /**
- * Implementation of {@link AvaticaFactory}
- * for JDBC 4.0 (corresponds to JDK 1.6).
+ * Relational operator that converts a stream to a relation.
+ *
+ * <p>Chi is named for the Greek letter &chi; and pronounced 'kai'.
+ *
+ * <p>Chi is the inverse of {@link Delta}. For any relation {@code R},
+ * Chi(Delta(R)) == R.
  */
-public class AvaticaJdbc40Factory extends AvaticaJdbc41Factory {
-  /** Creates a JDBC factory. */
-  AvaticaJdbc40Factory() {
-    super(4, 0);
+public class Chi extends SingleRel {
+  protected Chi(RelOptCluster cluster, RelTraitSet traits, RelNode input) {
+    super(cluster, traits, input);
   }
 }
 
-// End AvaticaJdbc40Factory.java
+// End Chi.java
