@@ -1308,7 +1308,8 @@ public class SqlToRelConverter {
             rexBuilder.makeCall(
                 SqlStdOperatorTable.EQUALS,
                 leftKeys.get(0),
-                bb.convertExpression(rightVals));
+                rexBuilder.ensureType(leftKeys.get(0).getType(),
+                    bb.convertExpression(rightVals), true));
       } else {
         assert rightVals instanceof SqlCall;
         final SqlBasicCall call = (SqlBasicCall) rightVals;
@@ -1322,7 +1323,9 @@ public class SqlToRelConverter {
                     new Function<Pair<RexNode, SqlNode>, RexNode>() {
                       public RexNode apply(Pair<RexNode, SqlNode> pair) {
                         return rexBuilder.makeCall(SqlStdOperatorTable.EQUALS,
-                            pair.left, bb.convertExpression(pair.right));
+                            pair.left,
+                            rexBuilder.ensureType(pair.left.getType(),
+                                bb.convertExpression(pair.right), true));
                       }
                     }),
                 false);
@@ -4004,6 +4007,11 @@ public class SqlToRelConverter {
     }
 
     void registerSubquery(SqlNode node, RelOptUtil.Logic logic) {
+      for (SubQuery subQuery : subqueryList) {
+        if (node.equalsDeep(subQuery.node, false)) {
+          return;
+        }
+      }
       subqueryList.add(new SubQuery(node, logic));
     }
 
@@ -4039,14 +4047,19 @@ public class SqlToRelConverter {
         return rex;
       }
 
-      boolean needTruthTest;
-
       // Sub-queries and OVER expressions are not like ordinary
       // expressions.
       final SqlKind kind = expr.getKind();
       final SubQuery subQuery;
       switch (kind) {
       case CURSOR:
+      case IN:
+        subQuery = subqueryMap.get(expr);
+        assert subQuery != null;
+        rex = subQuery.expr;
+        assert rex != null : "rex != null";
+        return rex;
+
       case SELECT:
       case EXISTS:
       case SCALAR_QUERY:
@@ -4055,10 +4068,6 @@ public class SqlToRelConverter {
         rex = subQuery.expr;
         assert rex != null : "rex != null";
 
-        if (kind == SqlKind.CURSOR) {
-          // cursor reference is pre-baked
-          return rex;
-        }
         if (((kind == SqlKind.SCALAR_QUERY)
             || (kind == SqlKind.EXISTS))
             && isConvertedSubq(rex)) {
@@ -4067,11 +4076,8 @@ public class SqlToRelConverter {
           return rex;
         }
 
-        RexNode fieldAccess;
-        needTruthTest = false;
-
         // The indicator column is the last field of the subquery.
-        fieldAccess =
+        RexNode fieldAccess =
             rexBuilder.makeFieldAccess(
                 rex,
                 rex.getType().getFieldCount() - 1);
@@ -4079,25 +4085,14 @@ public class SqlToRelConverter {
         // The indicator column will be nullable if it comes from
         // the null-generating side of the join. For EXISTS, add an
         // "IS TRUE" check so that the result is "BOOLEAN NOT NULL".
-        if (fieldAccess.getType().isNullable()) {
-          if (kind == SqlKind.EXISTS) {
-            needTruthTest = true;
-          }
-        }
-
-        if (needTruthTest) {
+        if (fieldAccess.getType().isNullable()
+            && kind == SqlKind.EXISTS) {
           fieldAccess =
               rexBuilder.makeCall(
                   SqlStdOperatorTable.IS_NOT_NULL,
                   fieldAccess);
         }
         return fieldAccess;
-
-      case IN:
-        subQuery = subqueryMap.get(expr);
-        assert subQuery != null;
-        assert subQuery.expr != null : "expr != null";
-        return subQuery.expr;
 
       case OVER:
         return convertOver(this, expr);

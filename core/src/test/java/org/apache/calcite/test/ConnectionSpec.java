@@ -14,20 +14,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.calcite.avatica.test;
+package org.apache.calcite.test;
 
-import org.junit.runner.RunWith;
-import org.junit.runners.Suite;
+/** Information necessary to create a JDBC connection.
+ *
+ * <p>Specify one to run tests against a different database. */
+public class ConnectionSpec {
+  public final String url;
+  public final String username;
+  public final String password;
+  public final String driver;
 
-/**
- * Avatica test suite.
- */
-@RunWith(Suite.class)
-@Suite.SuiteClasses({
-    ConnectStringParserTest.class,
-    RemoteDriverTest.class
-})
-public class AvaticaSuite {
+  public ConnectionSpec(String url, String username, String password,
+      String driver) {
+    this.url = url;
+    this.username = username;
+    this.password = password;
+    this.driver = driver;
+  }
 }
 
-// End AvaticaSuite.java
+// End ConnectionSpec.java

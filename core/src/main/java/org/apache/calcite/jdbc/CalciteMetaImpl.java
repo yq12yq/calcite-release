@@ -52,6 +52,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.lang.reflect.Field;
+import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -69,6 +70,11 @@ public class CalciteMetaImpl extends MetaImpl {
 
   public CalciteMetaImpl(CalciteConnectionImpl connection) {
     super(connection);
+    this.connProps
+        .setAutoCommit(false)
+        .setReadOnly(false)
+        .setTransactionIsolation(Connection.TRANSACTION_NONE);
+    this.connProps.setDirty(false);
   }
 
   static <T extends Named> Predicate1<T> namedMatcher(final Pat pattern) {
@@ -135,11 +141,18 @@ public class CalciteMetaImpl extends MetaImpl {
     return h;
   }
 
+  @Override public void closeStatement(StatementHandle h) {
+    final CalciteConnectionImpl calciteConnection = getConnection();
+    CalciteServerStatement stmt = calciteConnection.server.getStatement(h);
+    // stmt.close(); // TODO: implement
+    calciteConnection.server.removeStatement(h);
+  }
+
   private <E> MetaResultSet createResultSet(Enumerable<E> enumerable,
       Class clazz, String... names) {
-    final List<ColumnMetaData> columns = new ArrayList<ColumnMetaData>();
-    final List<Field> fields = new ArrayList<Field>();
-    final List<String> fieldNames = new ArrayList<String>();
+    final List<ColumnMetaData> columns = new ArrayList<>();
+    final List<Field> fields = new ArrayList<>();
+    final List<String> fieldNames = new ArrayList<>();
     for (String name : names) {
       final int index = fields.size();
       final String fieldName = AvaticaUtils.toCamelCase(name);
@@ -157,7 +170,7 @@ public class CalciteMetaImpl extends MetaImpl {
     final Iterable<Object> iterable = (Iterable<Object>) (Iterable) enumerable;
     return createResultSet(Collections.<String, Object>emptyMap(),
         columns, CursorFactory.record(clazz, fields, fieldNames),
-        iterable);
+        new Frame(0, true, iterable));
   }
 
   @Override protected <E> MetaResultSet
@@ -165,12 +178,12 @@ public class CalciteMetaImpl extends MetaImpl {
     final List<ColumnMetaData> columns = fieldMetaData(clazz).columns;
     final CursorFactory cursorFactory = CursorFactory.deduce(columns, clazz);
     return createResultSet(Collections.<String, Object>emptyMap(), columns,
-        cursorFactory, Collections.emptyList());
+        cursorFactory, Frame.EMPTY);
   }
 
   protected MetaResultSet createResultSet(
       Map<String, Object> internalParameters, List<ColumnMetaData> columns,
-      CursorFactory cursorFactory, final Iterable<Object> iterable) {
+      CursorFactory cursorFactory, final Frame firstFrame) {
     try {
       final CalciteConnectionImpl connection = getConnection();
       final AvaticaStatement statement = connection.createStatement();
@@ -180,10 +193,11 @@ public class CalciteMetaImpl extends MetaImpl {
               columns, cursorFactory, -1, null) {
             @Override public Enumerable<Object> enumerable(
                 DataContext dataContext) {
-              return Linq4j.asEnumerable(iterable);
+              return Linq4j.asEnumerable(firstFrame.rows);
             }
           };
-      return new MetaResultSet(statement.getId(), true, signature, iterable);
+      return MetaResultSet.create(connection.id, statement.getId(), true,
+          signature, firstFrame);
     } catch (SQLException e) {
       throw new RuntimeException(e);
     }
@@ -441,7 +455,7 @@ public class CalciteMetaImpl extends MetaImpl {
   }
 
   @Override public Iterable<Object> createIterable(StatementHandle handle,
-      Signature signature, Iterable<Object> iterable) {
+      Signature signature, List<Object> parameterValues, Frame firstFrame) {
     try {
       //noinspection unchecked
       final CalcitePrepare.CalciteSignature<Object> calciteSignature =
@@ -452,16 +466,20 @@ public class CalciteMetaImpl extends MetaImpl {
     }
   }
 
-  public Signature prepare(StatementHandle h, String sql, int maxRowCount) {
+  @Override public StatementHandle prepare(ConnectionHandle ch, String sql,
+      int maxRowCount) {
+    final StatementHandle h = createStatement(ch);
     final CalciteConnectionImpl calciteConnection = getConnection();
     CalciteServerStatement statement = calciteConnection.server.getStatement(h);
-    return calciteConnection.parseQuery(sql, statement.createPrepareContext(),
+    calciteConnection.parseQuery(sql, statement.createPrepareContext(),
         maxRowCount);
+    return h;
   }
 
-  public MetaResultSet prepareAndExecute(StatementHandle h, String sql,
-      int maxRowCount, PrepareCallback callback) {
+  @Override public ExecuteResult prepareAndExecute(ConnectionHandle ch,
+      String sql, int maxRowCount, PrepareCallback callback) {
     final CalcitePrepare.CalciteSignature<Object> signature;
+    final StatementHandle h = createStatement(ch);
     try {
       synchronized (callback.getMonitor()) {
         callback.clear();
@@ -470,10 +488,12 @@ public class CalciteMetaImpl extends MetaImpl {
             calciteConnection.server.getStatement(h);
         signature = calciteConnection.parseQuery(sql,
             statement.createPrepareContext(), maxRowCount);
-        callback.assign(signature, null);
+        callback.assign(signature, null, -1);
       }
       callback.execute();
-      return new MetaResultSet(h.id, false, signature, null);
+      final MetaResultSet metaResultSet =
+          MetaResultSet.create(h.connectionId, h.id, false, signature, null);
+      return new ExecuteResult(ImmutableList.of(metaResultSet));
     } catch (SQLException e) {
       throw new RuntimeException(e);
     }

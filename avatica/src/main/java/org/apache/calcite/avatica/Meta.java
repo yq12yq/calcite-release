@@ -19,6 +19,8 @@ package org.apache.calcite.avatica;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
 
 import java.lang.reflect.Field;
 import java.sql.SQLException;
@@ -26,6 +28,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Command handler for getting various metadata. Should be implemented by each
@@ -148,33 +151,69 @@ public interface Meta {
    * requires to be not null; derived classes may instead choose to execute the
    * relational expression in {@code signature}. */
   Iterable<Object> createIterable(StatementHandle handle, Signature signature,
-      Iterable<Object> iterable);
+      List<Object> parameterValues, Frame firstFrame);
 
   /** Prepares a statement.
    *
-   * @param h Statement handle
+   * @param ch Connection handle
    * @param sql SQL query
    * @param maxRowCount Negative for no limit (different meaning than JDBC)
    * @return Signature of prepared statement
    */
-  Signature prepare(StatementHandle h, String sql, int maxRowCount);
+  StatementHandle prepare(ConnectionHandle ch, String sql, int maxRowCount);
 
   /** Prepares and executes a statement.
    *
-   * @param h Statement handle
+   * @param ch Connection handle
    * @param sql SQL query
    * @param maxRowCount Negative for no limit (different meaning than JDBC)
    * @param callback Callback to lock, clear and assign cursor
-   * @return Signature of prepared statement
+   *
+   * @return Result containing statement ID, and if a query, a result set and
+   * first frame of data
    */
-  MetaResultSet prepareAndExecute(StatementHandle h, String sql,
+  ExecuteResult prepareAndExecute(ConnectionHandle ch, String sql,
       int maxRowCount, PrepareCallback callback);
+
+  /** Returns a frame of rows.
+   *
+   * <p>The frame describes whether there may be another frame. If there is not
+   * another frame, the current iteration is done when we have finished the
+   * rows in the this frame.
+   *
+   * <p>The default implementation always returns null.
+   *
+   * @param h Statement handle
+   * @param parameterValues A list of parameter values, if statement is to be
+   *                        executed; otherwise null
+   * @param offset Zero-based offset of first row in the requested frame
+   * @param fetchMaxRowCount Maximum number of rows to return; negative means
+   * no limit
+   * @return Frame, or null if there are no more
+   */
+  Frame fetch(StatementHandle h, List<Object> parameterValues, int offset,
+      int fetchMaxRowCount);
 
   /** Called during the creation of a statement to allocate a new handle.
    *
    * @param ch Connection handle
    */
   StatementHandle createStatement(ConnectionHandle ch);
+
+  /** Close a statement.
+   */
+  void closeStatement(StatementHandle h);
+
+  /** Close a connection */
+  void closeConnection(ConnectionHandle ch);
+
+  /** Sync client and server view of connection properties.
+   *
+   * <p>Note: this interface is considered "experimental" and may undergo further changes as this
+   * functionality is extended to other aspects of state management for
+   * {@link java.sql.Connection}, {@link java.sql.Statement}, and {@link java.sql.ResultSet}.</p>
+   */
+  ConnectionProperties connectionSync(ConnectionHandle ch, ConnectionProperties connProps);
 
   /** Factory to create instances of {@link Meta}. */
   interface Factory {
@@ -197,19 +236,53 @@ public interface Meta {
     }
   }
 
-  /** Meta data from which a result set can be constructed. */
+  /** Response from execute.
+   *
+   * <p>Typically a query will have a result set and rowCount = -1;
+   * a DML statement will have a rowCount and no result sets.
+   */
+  class ExecuteResult {
+    public final List<MetaResultSet> resultSets;
+
+    public ExecuteResult(List<MetaResultSet> resultSets) {
+      this.resultSets = resultSets;
+    }
+  }
+
+  /** Meta data from which a result set can be constructed.
+   *
+   * <p>If {@code updateCount} is not -1, the result is just a count. A result
+   * set cannot be constructed. */
   class MetaResultSet {
+    public final String connectionId;
     public final int statementId;
     public final boolean ownStatement;
-    public final Iterable<Object> iterable;
+    public final Frame firstFrame;
     public final Signature signature;
+    public final int updateCount;
 
-    public MetaResultSet(int statementId, boolean ownStatement,
-        Signature signature, Iterable<Object> iterable) {
+    protected MetaResultSet(String connectionId, int statementId,
+        boolean ownStatement, Signature signature, Frame firstFrame,
+        int updateCount) {
       this.signature = signature;
+      this.connectionId = connectionId;
       this.statementId = statementId;
       this.ownStatement = ownStatement;
-      this.iterable = iterable;
+      this.firstFrame = firstFrame; // may be null even if signature is not null
+      this.updateCount = updateCount;
+    }
+
+    public static MetaResultSet create(String connectionId, int statementId,
+        boolean ownStatement, Signature signature, Frame firstFrame) {
+      return new MetaResultSet(connectionId, statementId, ownStatement,
+          Objects.requireNonNull(signature), firstFrame, -1);
+    }
+
+    public static MetaResultSet count(String connectionId, int statementId,
+        int updateCount) {
+      assert updateCount >= 0;
+      return new MetaResultSet(connectionId, statementId, false, null, null,
+          updateCount);
     }
   }
 
@@ -227,7 +300,7 @@ public interface Meta {
       assert (fieldNames != null)
           == (style == Style.RECORD_PROJECTION || style == Style.MAP);
       assert (fields != null) == (style == Style.RECORD_PROJECTION);
-      this.style = style;
+      this.style = Objects.requireNonNull(style);
       this.clazz = clazz;
       this.fields = fields;
       this.fieldNames = fieldNames;
@@ -271,7 +344,7 @@ public interface Meta {
     public static CursorFactory record(Class resultClass, List<Field> fields,
         List<String> fieldNames) {
       if (fields == null) {
-        fields = new ArrayList<Field>();
+        fields = new ArrayList<>();
         for (String fieldName : fieldNames) {
           try {
             fields.add(resultClass.getField(fieldName));
@@ -348,34 +421,167 @@ public interface Meta {
       return new Signature(columns, sql, parameters, internalParameters,
           cursorFactory);
     }
+
+    /** Creates a copy of this Signature with null lists and maps converted to
+     * empty. */
+    public Signature sanitize() {
+      if (columns == null || parameters == null || internalParameters == null) {
+        return new Signature(sanitize(columns), sql, sanitize(parameters),
+            sanitize(internalParameters), cursorFactory);
+      }
+      return this;
+    }
+
+    private <E> List<E> sanitize(List<E> list) {
+      return list == null ? Collections.<E>emptyList() : list;
+    }
+
+    private <K, V> Map<K, V> sanitize(Map<K, V> map) {
+      return map == null ? Collections.<K, V>emptyMap() : map;
+    }
+  }
+
+  /** A collection of rows. */
+  class Frame {
+    /** Frame that has zero rows and is the last frame. */
+    public static final Frame EMPTY =
+        new Frame(0, true, Collections.emptyList());
+
+    /** Frame that has zero rows but may have another frame. */
+    public static final Frame MORE =
+        new Frame(0, false, Collections.emptyList());
+
+    /** Zero-based offset of first row. */
+    public final int offset;
+    /** Whether this is definitely the last frame of rows.
+     * If true, there are no more rows.
+     * If false, there may or may not be more rows. */
+    public final boolean done;
+    /** The rows. */
+    public final Iterable<Object> rows;
+
+    public Frame(int offset, boolean done, Iterable<Object> rows) {
+      this.offset = offset;
+      this.done = done;
+      this.rows = rows;
+    }
+
+    @JsonCreator
+    public static Frame create(@JsonProperty("offset") int offset,
+        @JsonProperty("done") boolean done,
+        @JsonProperty("rows") List<Object> rows) {
+      if (offset == 0 && done && rows.isEmpty()) {
+        return EMPTY;
+      }
+      return new Frame(offset, done, rows);
+    }
   }
 
   /** Connection handle. */
   class ConnectionHandle {
-    public final int id;
+    public final String id;
 
     @Override public String toString() {
-      return Integer.toString(id);
+      return id;
     }
 
     @JsonCreator
-    public ConnectionHandle(@JsonProperty("id") int id) {
+    public ConnectionHandle(@JsonProperty("id") String id) {
       this.id = id;
     }
   }
 
   /** Statement handle. */
   class StatementHandle {
+    public final String connectionId;
     public final int id;
 
+    // not final because LocalService#apply(PrepareRequest)
+    /** Only present for PreparedStatement handles, null otherwise. */
+    public Signature signature;
+
     @Override public String toString() {
-      return Integer.toString(id);
+      return connectionId + "::" + Integer.toString(id);
     }
 
     @JsonCreator
-    public StatementHandle(@JsonProperty("id") int id) {
+    public StatementHandle(
+        @JsonProperty("connectionId") String connectionId,
+        @JsonProperty("id") int id,
+        @JsonProperty("signature") Signature signature) {
+      this.connectionId = connectionId;
       this.id = id;
+      this.signature = signature;
     }
+  }
+
+  /** A pojo containing various client-settable {@link java.sql.Connection} properties.
+   *
+   * <p>{@code java.lang} types are used here so that {@code null} can be used to indicate
+   * a value has no been set.</p>
+   *
+   * <p>Note: this interface is considered "experimental" and may undergo further changes as this
+   * functionality is extended to other aspects of state management for
+   * {@link java.sql.Connection}, {@link java.sql.Statement}, and {@link java.sql.ResultSet}.</p>
+   */
+  @JsonTypeInfo(
+      use = JsonTypeInfo.Id.NAME,
+      property = "connProps",
+      defaultImpl = ConnectionPropertiesImpl.class)
+  @JsonSubTypes({
+      @JsonSubTypes.Type(value = ConnectionPropertiesImpl.class, name = "connPropsImpl")
+  })
+  interface ConnectionProperties {
+
+    /** Overwrite fields in {@code this} with any non-null fields in {@code that}
+     *
+     * @return {@code this}
+     */
+    ConnectionProperties merge(ConnectionProperties that);
+
+    /** @return {@code true} when no properies have been set, {@code false} otherwise. */
+    @JsonIgnore
+    boolean isEmpty();
+
+    /** Set {@code autoCommit} status.
+     *
+     * @return {@code this}
+     */
+    ConnectionProperties setAutoCommit(boolean val);
+
+    Boolean isAutoCommit();
+
+    /** Set {@code readOnly} status.
+     *
+     * @return {@code this}
+     */
+    ConnectionProperties setReadOnly(boolean val);
+
+    Boolean isReadOnly();
+
+    /** Set {@code transactionIsolation} status.
+     *
+     * @return {@code this}
+     */
+    ConnectionProperties setTransactionIsolation(int val);
+
+    Integer getTransactionIsolation();
+
+    /** Set {@code catalog}.
+     *
+     * @return {@code this}
+     */
+    ConnectionProperties setCatalog(String val);
+
+    String getCatalog();
+
+    /** Set {@code schema}.
+     *
+     * @return {@code this}
+     */
+    ConnectionProperties setSchema(String val);
+
+    String getSchema();
   }
 
   /** API to put a result set into a statement, being careful to enforce
@@ -383,7 +589,7 @@ public interface Meta {
   interface PrepareCallback {
     Object getMonitor();
     void clear() throws SQLException;
-    void assign(Signature signature, Iterable<Object> iterable)
+    void assign(Signature signature, Frame firstFrame, int updateCount)
         throws SQLException;
     void execute() throws SQLException;
   }

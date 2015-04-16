@@ -50,6 +50,7 @@ import com.google.common.collect.ImmutableMultiset;
 import com.google.common.collect.Lists;
 
 import net.hydromatic.foodmart.data.hsqldb.FoodmartHsqldb;
+import net.hydromatic.scott.data.hsqldb.ScottHsqldb;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -100,11 +101,11 @@ public class CalciteAssert {
    * MySQL manually with the foodmart data set, otherwise there will be test
    * failures.  To run against MySQL, specify '-Dcalcite.test.db=mysql' on the
    * java command line. */
-  public static final ConnectionSpec CONNECTION_SPEC =
+  public static final DatabaseInstance DB =
       Util.first(System.getProperty("calcite.test.db"), "hsqldb")
           .equals("mysql")
-          ? ConnectionSpec.MYSQL
-          : ConnectionSpec.HSQLDB;
+          ? DatabaseInstance.MYSQL
+          : DatabaseInstance.HSQLDB;
 
   /** Whether to enable slow tests. Default is false. */
   public static final boolean ENABLE_SLOW =
@@ -628,17 +629,23 @@ public class CalciteAssert {
 
   public static SchemaPlus addSchema(SchemaPlus rootSchema, SchemaSpec schema) {
     SchemaPlus foodmart;
+    SchemaPlus jdbcScott;
+    final ConnectionSpec cs;
+    final DataSource dataSource;
     switch (schema) {
     case REFLECTIVE_FOODMART:
       return rootSchema.add("foodmart",
           new ReflectiveSchema(new JdbcTest.FoodmartSchema()));
+    case JDBC_SCOTT:
+      cs = DatabaseInstance.HSQLDB.scott;
+      dataSource = JdbcSchema.dataSource(cs.url, cs.driver, cs.username,
+          cs.password);
+      return rootSchema.add("jdbc_scott",
+          JdbcSchema.create(rootSchema, "jdbc_scott", dataSource, null, null));
     case JDBC_FOODMART:
-      final DataSource dataSource =
-          JdbcSchema.dataSource(
-              CONNECTION_SPEC.url,
-              CONNECTION_SPEC.driver,
-              CONNECTION_SPEC.username,
-              CONNECTION_SPEC.password);
+      cs = DB.foodmart;
+      dataSource =
+          JdbcSchema.dataSource(cs.url, cs.driver, cs.username, cs.password);
       return rootSchema.add("foodmart",
           JdbcSchema.create(rootSchema, "foodmart", dataSource, null,
               "foodmart"));
@@ -657,6 +664,13 @@ public class CalciteAssert {
                   + "join \"foodmart\".\"product_class\" as pc on p.\"product_class_id\" = pc.\"product_class_id\"",
               true));
       return foodmart;
+    case SCOTT:
+      jdbcScott = rootSchema.getSubSchema("jdbc_scott");
+      if (jdbcScott == null) {
+        jdbcScott =
+            CalciteAssert.addSchema(rootSchema, SchemaSpec.JDBC_SCOTT);
+      }
+      return rootSchema.add("scott", new CloneSchema(jdbcScott));
     case CLONE_FOODMART:
       foodmart = rootSchema.getSubSchema("foodmart");
       if (foodmart == null) {
@@ -749,6 +763,8 @@ public class CalciteAssert {
         return with(SchemaSpec.CLONE_FOODMART);
       case JDBC_FOODMART_WITH_LATTICE:
         return with(SchemaSpec.JDBC_FOODMART_WITH_LATTICE);
+      case SCOTT:
+        return with(SchemaSpec.SCOTT);
       default:
         throw Util.unexpected(config);
       }
@@ -1380,6 +1396,9 @@ public class CalciteAssert {
     /** Configuration that includes the metadata schema. */
     REGULAR_PLUS_METADATA,
 
+    /** Configuration that loads the "scott/tiger" database. */
+    SCOTT,
+
     /** Configuration that loads Spark. */
     SPARK,
   }
@@ -1438,23 +1457,22 @@ public class CalciteAssert {
 
   /** Information necessary to create a JDBC connection. Specify one to run
    * tests against a different database. (hsqldb is the default.) */
-  public enum ConnectionSpec {
-    HSQLDB(FoodmartHsqldb.URI, "FOODMART", "FOODMART",
-        "org.hsqldb.jdbcDriver"),
-    MYSQL("jdbc:mysql://localhost/foodmart", "foodmart", "foodmart",
-        "com.mysql.jdbc.Driver");
+  public enum DatabaseInstance {
+    HSQLDB(
+        new ConnectionSpec(FoodmartHsqldb.URI, "FOODMART", "FOODMART",
+            "org.hsqldb.jdbcDriver"),
+        new ConnectionSpec(ScottHsqldb.URI, ScottHsqldb.USER,
+            ScottHsqldb.PASSWORD, "org.hsqldb.jdbcDriver")),
+    MYSQL(
+        new ConnectionSpec("jdbc:mysql://localhost/foodmart", "foodmart",
+            "foodmart", "com.mysql.jdbc.Driver"), null);
 
-    public final String url;
-    public final String username;
-    public final String password;
-    public final String driver;
+    public final ConnectionSpec foodmart;
+    public final ConnectionSpec scott;
 
-    ConnectionSpec(String url, String username, String password,
-        String driver) {
-      this.url = url;
-      this.username = username;
-      this.password = password;
-      this.driver = driver;
+    DatabaseInstance(ConnectionSpec foodmart, ConnectionSpec scott) {
+      this.foodmart = foodmart;
+      this.scott = scott;
     }
   }
 
@@ -1465,6 +1483,8 @@ public class CalciteAssert {
     CLONE_FOODMART,
     JDBC_FOODMART_WITH_LATTICE,
     HR,
+    JDBC_SCOTT,
+    SCOTT,
     LINGUAL,
     POST
   }

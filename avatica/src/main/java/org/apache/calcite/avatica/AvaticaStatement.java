@@ -16,14 +16,16 @@
  */
 package org.apache.calcite.avatica;
 
-import com.google.common.base.Preconditions;
-
+import java.sql.CallableStatement;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.SQLWarning;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Implementation of {@link java.sql.Statement}
@@ -48,13 +50,16 @@ public abstract class AvaticaStatement
    */
   protected AvaticaResultSet openResultSet;
 
+  /** Current update count. Same lifecycle as {@link #openResultSet}. */
+  protected int updateCount;
+
   private int queryTimeoutMillis;
   final int resultSetType;
   final int resultSetConcurrency;
   final int resultSetHoldability;
   private int fetchSize;
   private int fetchDirection;
-  protected int maxRowCount;
+  protected int maxRowCount = 0;
 
   /**
    * Creates an AvaticaStatement.
@@ -68,7 +73,7 @@ public abstract class AvaticaStatement
   protected AvaticaStatement(AvaticaConnection connection,
       Meta.StatementHandle h, int resultSetType, int resultSetConcurrency,
       int resultSetHoldability) {
-    this.connection = Preconditions.checkNotNull(connection);
+    this.connection = Objects.requireNonNull(connection);
     this.resultSetType = resultSetType;
     this.resultSetConcurrency = resultSetConcurrency;
     this.resultSetHoldability = resultSetHoldability;
@@ -86,35 +91,47 @@ public abstract class AvaticaStatement
     return handle.id;
   }
 
+  private void checkNotPreparedOrCallable(String s) throws SQLException {
+    if (this instanceof PreparedStatement
+        || this instanceof CallableStatement) {
+      throw connection.helper.createException("Cannot call " + s
+          + " on prepared or callable statement");
+    }
+  }
+
+  protected void executeInternal(String sql) throws SQLException {
+    // reset previous state before moving forward.
+    this.updateCount = -1;
+    try {
+      // In JDBC, maxRowCount = 0 means no limit; in prepare it means LIMIT 0
+      final int maxRowCount1 = maxRowCount <= 0 ? -1 : maxRowCount;
+      Meta.ExecuteResult x =
+          connection.prepareAndExecuteInternal(this, sql, maxRowCount1);
+    } catch (RuntimeException e) {
+      throw connection.helper.createException(
+          "error while executing SQL \"" + sql + "\": " + e.getMessage(), e);
+    }
+  }
+
   // implement Statement
 
   public boolean execute(String sql) throws SQLException {
-    try {
-      // In JDBC, maxRowCount = 0 means no limit; in prepare it means LIMIT 0
-      final int maxRowCount1 = maxRowCount <= 0 ? -1 : maxRowCount;
-      Meta.Signature x = connection.meta.prepare(handle, sql, maxRowCount1);
-      return executeInternal(x);
-    } catch (RuntimeException e) {
-      throw connection.helper.createException("while executing SQL: " + sql, e);
-    }
-  }
-
-  public ResultSet executeQueryOld(String sql) throws SQLException {
-    try {
-      final int maxRowCount1 = maxRowCount <= 0 ? -1 : maxRowCount;
-      Meta.Signature x = connection.meta.prepare(handle, sql, maxRowCount1);
-      return executeQueryInternal(x);
-    } catch (RuntimeException e) {
-      throw connection.helper.createException(
-        "error while executing SQL \"" + sql + "\": " + e.getMessage(), e);
-    }
+    checkNotPreparedOrCallable("execute(String)");
+    executeInternal(sql);
+    // Result set is null for DML or DDL.
+    // Result set is closed if user cancelled the query.
+    return openResultSet != null && !openResultSet.isClosed();
   }
 
   public ResultSet executeQuery(String sql) throws SQLException {
+    checkNotPreparedOrCallable("executeQuery(String)");
     try {
-      // In JDBC, maxRowCount = 0 means no limit; in prepare it means LIMIT 0
-      final int maxRowCount1 = maxRowCount <= 0 ? -1 : maxRowCount;
-      return connection.prepareAndExecuteInternal(this, sql, maxRowCount1);
+      executeInternal(sql);
+      if (openResultSet == null) {
+        throw connection.helper.createException(
+            "Statement did not return a result set");
+      }
+      return openResultSet;
     } catch (RuntimeException e) {
       throw connection.helper.createException(
         "error while executing SQL \"" + sql + "\": " + e.getMessage(), e);
@@ -122,19 +139,9 @@ public abstract class AvaticaStatement
   }
 
   public int executeUpdate(String sql) throws SQLException {
-    ResultSet resultSet = executeQuery(sql);
-    if (resultSet.getMetaData().getColumnCount() != 1) {
-      throw new SQLException("expected one result column");
-    }
-    if (!resultSet.next()) {
-      throw new SQLException("expected one row, got zero");
-    }
-    int result = resultSet.getInt(1);
-    if (resultSet.next()) {
-      throw new SQLException("expected one row, got two or more");
-    }
-    resultSet.close();
-    return result;
+    checkNotPreparedOrCallable("executeUpdate(String)");
+    executeInternal(sql);
+    return updateCount;
   }
 
   public synchronized void close() throws SQLException {
@@ -152,6 +159,13 @@ public abstract class AvaticaStatement
         AvaticaResultSet c = openResultSet;
         openResultSet = null;
         c.close();
+      }
+      try {
+        // inform the server to close the resource
+        connection.meta.closeStatement(handle);
+      } finally {
+        // make sure we don't leak on our side
+        connection.statementMap.remove(handle.id);
       }
       // If onStatementClose throws, this method will throw an exception (later
       // converted to SQLException), but this statement still gets closed.
@@ -240,7 +254,7 @@ public abstract class AvaticaStatement
   }
 
   public int getUpdateCount() throws SQLException {
-    return -1;
+    return updateCount;
   }
 
   public boolean getMoreResults() throws SQLException {
@@ -417,6 +431,25 @@ public abstract class AvaticaStatement
    */
   protected List<Object> getParameterValues() {
     return Collections.emptyList();
+  }
+
+  /** Returns a list of bound parameter values.
+   *
+   * <p>If any of the parameters have not been bound, throws.
+   * If parameters have been bound to null, the value in the list is null.
+   */
+  protected List<Object> getBoundParameterValues() throws SQLException {
+    final List<Object> list = new ArrayList<>();
+    for (Object parameterValue : getParameterValues()) {
+      if (parameterValue == null) {
+        throw new SQLException("unbound parameter");
+      }
+      if (parameterValue == AvaticaParameter.DUMMY_VALUE) {
+        parameterValue = null;
+      }
+      list.add(parameterValue);
+    }
+    return list;
   }
 }
 

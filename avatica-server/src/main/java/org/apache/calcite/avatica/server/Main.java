@@ -35,6 +35,18 @@ public class Main {
     server.join();
   }
 
+  /**
+   * Creates and starts an {@link HttpServer}.
+   *
+   * <p>Arguments are as follows:
+   * <ul>
+   *   <li>args[0]: the {@link Meta.Factory} class name
+   *   <li>args[1+]: arguments passed along to
+   *   {@link Meta.Factory#create(java.util.List)}
+   * </ul>
+   *
+   * @param args Command-line arguments
+   */
   public static HttpServer start(String[] args)
       throws ClassNotFoundException, InstantiationException,
       IllegalAccessException {

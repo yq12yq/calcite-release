@@ -20,6 +20,7 @@ import org.apache.calcite.avatica.Meta;
 import org.apache.calcite.avatica.MetaImpl;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -36,7 +37,7 @@ public class LocalService implements Service {
     if (iterable instanceof List) {
       return (List<E>) iterable;
     }
-    final List<E> rowList = new ArrayList<E>();
+    final List<E> rowList = new ArrayList<>();
     for (E row : iterable) {
       rowList.add(row);
     }
@@ -45,15 +46,21 @@ public class LocalService implements Service {
 
   /** Converts a result set (not serializable) into a serializable response. */
   public ResultSetResponse toResponse(Meta.MetaResultSet resultSet) {
+    if (resultSet.updateCount != -1) {
+      return new ResultSetResponse(resultSet.connectionId,
+          resultSet.statementId, resultSet.ownStatement, null, null,
+          resultSet.updateCount);
+    }
     Meta.CursorFactory cursorFactory = resultSet.signature.cursorFactory;
     final List<Object> list;
-    if (resultSet.iterable != null) {
-      list = list(resultSet.iterable);
+    if (resultSet.firstFrame != null) {
+      list = list(resultSet.firstFrame.rows);
       switch (cursorFactory.style) {
       case ARRAY:
         cursorFactory = Meta.CursorFactory.LIST;
         break;
       case MAP:
+      case LIST:
         break;
       default:
         cursorFactory = Meta.CursorFactory.map(cursorFactory.fieldNames);
@@ -67,17 +74,17 @@ public class LocalService implements Service {
     if (cursorFactory != resultSet.signature.cursorFactory) {
       signature = signature.setCursorFactory(cursorFactory);
     }
-    return new ResultSetResponse(resultSet.statementId, resultSet.ownStatement,
-        signature, list);
+    return new ResultSetResponse(resultSet.connectionId, resultSet.statementId,
+        resultSet.ownStatement, signature, new Meta.Frame(0, true, list), -1);
   }
 
   private List<List<Object>> list2(Meta.MetaResultSet resultSet) {
-    List<List<Object>> list = new ArrayList<List<Object>>();
-    return MetaImpl.collect(resultSet.signature.cursorFactory,
-        meta.createIterable(new Meta.StatementHandle(resultSet.statementId),
-            resultSet.signature,
-            resultSet.iterable),
-        list);
+    final Meta.StatementHandle h = new Meta.StatementHandle(
+        resultSet.connectionId, resultSet.statementId, null);
+    final Iterable<Object> iterable = meta.createIterable(h,
+        resultSet.signature, Collections.emptyList(), resultSet.firstFrame);
+    final List<List<Object>> list = new ArrayList<>();
+    return MetaImpl.collect(resultSet.signature.cursorFactory, iterable, list);
   }
 
   public ResultSetResponse apply(CatalogsRequest request) {
@@ -91,38 +98,97 @@ public class LocalService implements Service {
     return toResponse(resultSet);
   }
 
-  public PrepareResponse apply(PrepareRequest request) {
-    final Meta.StatementHandle h =
-        new Meta.StatementHandle(request.statementId);
-    final Meta.Signature signature =
-        meta.prepare(h, request.sql, request.maxRowCount);
-    return new PrepareResponse(signature);
+  public ResultSetResponse apply(TablesRequest request) {
+    final Meta.MetaResultSet resultSet =
+        meta.getTables(request.catalog,
+            Meta.Pat.of(request.schemaPattern),
+            Meta.Pat.of(request.tableNamePattern),
+            request.typeList);
+    return toResponse(resultSet);
   }
 
-  public ResultSetResponse apply(PrepareAndExecuteRequest request) {
-    final Meta.StatementHandle h =
-        new Meta.StatementHandle(request.statementId);
+  public ResultSetResponse apply(TableTypesRequest request) {
+    final Meta.MetaResultSet resultSet = meta.getTableTypes();
+    return toResponse(resultSet);
+  }
+
+  public ResultSetResponse apply(ColumnsRequest request) {
     final Meta.MetaResultSet resultSet =
-        meta.prepareAndExecute(h, request.sql, request.maxRowCount,
+        meta.getColumns(request.catalog,
+            Meta.Pat.of(request.schemaPattern),
+            Meta.Pat.of(request.tableNamePattern),
+            Meta.Pat.of(request.columnNamePattern));
+    return toResponse(resultSet);
+  }
+
+  public PrepareResponse apply(PrepareRequest request) {
+    final Meta.ConnectionHandle ch =
+        new Meta.ConnectionHandle(request.connectionId);
+    final Meta.StatementHandle h =
+        meta.prepare(ch, request.sql, request.maxRowCount);
+    return new PrepareResponse(h);
+  }
+
+  public ExecuteResponse apply(PrepareAndExecuteRequest request) {
+    final Meta.ConnectionHandle ch =
+        new Meta.ConnectionHandle(request.connectionId);
+    final Meta.ExecuteResult executeResult =
+        meta.prepareAndExecute(ch, request.sql, request.maxRowCount,
             new Meta.PrepareCallback() {
-              public Object getMonitor() {
+              @Override public Object getMonitor() {
                 return LocalService.class;
               }
 
-              public void clear() {}
+              @Override public void clear() {
+              }
 
-              public void assign(Meta.Signature signature,
-                  Iterable<Object> iterable) {}
+              @Override public void assign(Meta.Signature signature,
+                  Meta.Frame firstFrame, int updateCount) {
+              }
 
-              public void execute() {}
+              @Override public void execute() {
+              }
             });
-    return toResponse(resultSet);
+    final List<ResultSetResponse> results = new ArrayList<>();
+    for (Meta.MetaResultSet metaResultSet : executeResult.resultSets) {
+      results.add(toResponse(metaResultSet));
+    }
+    return new ExecuteResponse(results);
+  }
+
+  public FetchResponse apply(FetchRequest request) {
+    final Meta.StatementHandle h = new Meta.StatementHandle(
+        request.connectionId, request.statementId, null);
+    final Meta.Frame frame =
+        meta.fetch(h,
+            request.parameterValues,
+            request.offset,
+            request.fetchMaxRowCount);
+    return new FetchResponse(frame);
   }
 
   public CreateStatementResponse apply(CreateStatementRequest request) {
     final Meta.StatementHandle h =
         meta.createStatement(new Meta.ConnectionHandle(request.connectionId));
-    return new CreateStatementResponse(h.id);
+    return new CreateStatementResponse(h.connectionId, h.id);
+  }
+
+  public CloseStatementResponse apply(CloseStatementRequest request) {
+    meta.closeStatement(
+        new Meta.StatementHandle(request.connectionId, request.statementId,
+            null));
+    return new CloseStatementResponse();
+  }
+
+  public CloseConnectionResponse apply(CloseConnectionRequest request) {
+    meta.closeConnection(new Meta.ConnectionHandle(request.connectionId));
+    return new CloseConnectionResponse();
+  }
+
+  public ConnectionSyncResponse apply(ConnectionSyncRequest request) {
+    final Meta.ConnectionProperties connProps =
+        meta.connectionSync(new Meta.ConnectionHandle(request.connectionId), request.connProps);
+    return new ConnectionSyncResponse(connProps);
   }
 }
 

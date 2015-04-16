@@ -86,7 +86,6 @@ import org.apache.calcite.util.Util;
 import com.google.common.base.Function;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableMultimap;
 
 import net.hydromatic.quidem.Quidem;
 
@@ -177,10 +176,10 @@ public class JdbcTest {
   public static final String FOODMART_SCHEMA = "     {\n"
       + "       type: 'jdbc',\n"
       + "       name: 'foodmart',\n"
-      + "       jdbcDriver: '" + CalciteAssert.CONNECTION_SPEC.driver + "',\n"
-      + "       jdbcUser: '" + CalciteAssert.CONNECTION_SPEC.username + "',\n"
-      + "       jdbcPassword: '" + CalciteAssert.CONNECTION_SPEC.password + "',\n"
-      + "       jdbcUrl: '" + CalciteAssert.CONNECTION_SPEC.url + "',\n"
+      + "       jdbcDriver: '" + CalciteAssert.DB.foodmart.driver + "',\n"
+      + "       jdbcUser: '" + CalciteAssert.DB.foodmart.username + "',\n"
+      + "       jdbcPassword: '" + CalciteAssert.DB.foodmart.password + "',\n"
+      + "       jdbcUrl: '" + CalciteAssert.DB.foodmart.url + "',\n"
       + "       jdbcCatalog: null,\n"
       + "       jdbcSchema: 'foodmart'\n"
       + "     }\n";
@@ -190,6 +189,29 @@ public class JdbcTest {
       + "  defaultSchema: 'foodmart',\n"
       + "   schemas: [\n"
       + FOODMART_SCHEMA
+      + "   ]\n"
+      + "}";
+
+  private static final ConnectionSpec SCOTT =
+      Util.first(CalciteAssert.DB.scott,
+          CalciteAssert.DatabaseInstance.HSQLDB.scott);
+
+  public static final String SCOTT_SCHEMA = "     {\n"
+      + "       type: 'jdbc',\n"
+      + "       name: 'SCOTT',\n"
+      + "       jdbcDriver: '" + SCOTT.driver + "',\n"
+      + "       jdbcUser: '" + SCOTT.username + "',\n"
+      + "       jdbcPassword: '" + SCOTT.password + "',\n"
+      + "       jdbcUrl: '" + SCOTT.url + "',\n"
+      + "       jdbcCatalog: null,\n"
+      + "       jdbcSchema: 'SCOTT'\n"
+      + "     }\n";
+
+  public static final String SCOTT_MODEL = "{\n"
+      + "  version: '1.0',\n"
+      + "  defaultSchema: 'SCOTT',\n"
+      + "   schemas: [\n"
+      + SCOTT_SCHEMA
       + "   ]\n"
       + "}";
 
@@ -1827,8 +1849,8 @@ public class JdbcTest {
 
   /** Tests accessing a column in a JDBC source whose type is ARRAY. */
   @Test public void testArray() throws Exception {
-    String hsqldbMemUrl = "jdbc:hsqldb:mem:.";
-    Connection baseConnection = DriverManager.getConnection(hsqldbMemUrl);
+    final String url = MultiJdbcSchemaJoinTest.TempDb.INSTANCE.getUrl();
+    Connection baseConnection = DriverManager.getConnection(url);
     Statement baseStmt = baseConnection.createStatement();
     baseStmt.execute("CREATE TABLE ARR_TABLE (\n"
         + "ID INTEGER,\n"
@@ -1854,7 +1876,7 @@ public class JdbcTest {
             + "       type: 'jdbc',\n"
             + "       name: 'BASEJDBC',\n"
             + "       jdbcDriver: '" + jdbcDriver.class.getName() + "',\n"
-            + "       jdbcUrl: '" + hsqldbMemUrl + "',\n"
+            + "       jdbcUrl: '" + url + "',\n"
             + "       jdbcCatalog: null,\n"
             + "       jdbcSchema: null\n"
             + "     }\n"
@@ -2381,116 +2403,6 @@ public class JdbcTest {
         .returns("EXPR$0=-3\n");
   }
 
-  /**
-   * Conversions table, per JDBC 1.1 specification, table 6.
-   *
-   * <pre>
-   *                    T S I B R F D D N B C V L B V L D T T
-   *                    I M N I E L O E U I H A O I A O A I I
-   *                    N A T G A O U C M T A R N N R N T M M
-   *                    Y L E I L A B I E   R C G A B G E E E
-   *                    I L G N     L M R     H V R I V E   S
-   *                    N I E T     E A I     A A Y   A     T
-   *                    T N R         L C     R R     R     A
-   *                      T                     C     B     M
-   *                                            H     I     P
-   * Java type
-   * ================== = = = = = = = = = = = = = = = = = = =
-   * String             x x x x x x x x x x x x x x x x x x x
-   * BigDecimal         x x x x x x x x x x x x . . . . . . .
-   * Boolean            x x x x x x x x x x x x . . . . . . .
-   * Integer            x x x x x x x x x x x x . . . . . . .
-   * Long               x x x x x x x x x x x x . . . . . . .
-   * Float              x x x x x x x x x x x x . . . . . . .
-   * Double             x x x x x x x x x x x x . . . . . . .
-   * byte[]             . . . . . . . . . . . . . x x x . . .
-   * java.sql.Date      . . . . . . . . . . x x x . . . x . x
-   * java.sql.Time      . . . . . . . . . . x x x . . . . x .
-   * java.sql.Timestamp . . . . . . . . . . x x x . . . x x x
-   * </pre>
-   */
-  public static final ImmutableMultimap<Class, Integer> CONVERSIONS = x();
-
-  private static ImmutableMultimap<Class, Integer> x() {
-    final ImmutableMultimap.Builder<Class, Integer> builder =
-        ImmutableMultimap.builder();
-    int[] allTypes = {
-      java.sql.Types.TINYINT,
-      java.sql.Types.SMALLINT,
-      java.sql.Types.INTEGER,
-      java.sql.Types.BIGINT,
-      java.sql.Types.REAL,
-      java.sql.Types.FLOAT,
-      java.sql.Types.DOUBLE,
-      java.sql.Types.DECIMAL,
-      java.sql.Types.NUMERIC,
-      java.sql.Types.BIT,
-      java.sql.Types.CHAR,
-      java.sql.Types.VARCHAR,
-      java.sql.Types.LONGVARCHAR,
-      java.sql.Types.BINARY,
-      java.sql.Types.VARBINARY,
-      java.sql.Types.LONGVARBINARY,
-      java.sql.Types.DATE,
-      java.sql.Types.TIME,
-      java.sql.Types.TIMESTAMP
-    };
-    int[] numericTypes = {
-      java.sql.Types.TINYINT,
-      java.sql.Types.SMALLINT,
-      java.sql.Types.INTEGER,
-      java.sql.Types.BIGINT,
-      java.sql.Types.REAL,
-      java.sql.Types.FLOAT,
-      java.sql.Types.DOUBLE,
-      java.sql.Types.DECIMAL,
-      java.sql.Types.NUMERIC,
-      java.sql.Types.BIT
-    };
-    Class[] numericClasses = {
-      BigDecimal.class, Boolean.class, Integer.class, Long.class, Float.class,
-      Double.class
-    };
-    Class[] allClasses = {
-      String.class, BigDecimal.class, Boolean.class, Integer.class,
-      Long.class, Float.class, Double.class, byte[].class,
-      java.sql.Date.class, java.sql.Time.class, java.sql.Timestamp.class,
-    };
-    int[] charTypes = {
-      java.sql.Types.CHAR,
-      java.sql.Types.VARCHAR,
-      java.sql.Types.LONGVARCHAR
-    };
-    int[] binaryTypes = {
-      java.sql.Types.BINARY,
-      java.sql.Types.VARBINARY,
-      java.sql.Types.LONGVARBINARY
-    };
-    for (int type : allTypes) {
-      builder.put(String.class, type);
-    }
-    for (Class clazz : numericClasses) {
-      for (int type : numericTypes) {
-        builder.put(clazz, type);
-      }
-    }
-    for (int type : charTypes) {
-      for (Class clazz : allClasses) {
-        builder.put(clazz, type);
-      }
-    }
-    for (int type : binaryTypes) {
-      builder.put(byte[].class, type);
-    }
-    builder.put(java.sql.Date.class, java.sql.Types.DATE);
-    builder.put(java.sql.Date.class, java.sql.Types.TIMESTAMP);
-    builder.put(java.sql.Time.class, java.sql.Types.TIME);
-    builder.put(java.sql.Timestamp.class, java.sql.Types.DATE);
-    builder.put(java.sql.Time.class, java.sql.Types.TIME);
-    builder.put(java.sql.Timestamp.class, java.sql.Types.TIMESTAMP);
-    return builder.build();
-  }
-
   /** Tests a table constructor that has multiple rows and multiple columns.
    *
    * <p>Note that the character literals become CHAR(3) and that the first is
@@ -3003,17 +2915,16 @@ public class JdbcTest {
     CalciteAssert.that()
         .with(CalciteAssert.Config.JDBC_FOODMART)
         .query(
-            "select count(*) as c from \"foodmart\".\"sales_fact_1997\" as p1 join \"foodmart\".\"sales_fact_1997\" as p2 using (\"store_id\")")
-        .returns("C=749681031\n")
-        .explainContains("EnumerableAggregate(group=[{}], C=[COUNT()])\n"
-            + "  EnumerableCalc(expr#0..1=[{inputs}], expr#2=[0], DUMMY=[$t2])\n"
-            + "    EnumerableJoin(condition=[=($0, $1)], joinType=[inner])\n"
-            + "      JdbcToEnumerableConverter\n"
-            + "        JdbcProject(store_id=[$4])\n"
-            + "          JdbcTableScan(table=[[foodmart, sales_fact_1997]])\n"
-            + "      JdbcToEnumerableConverter\n"
-            + "        JdbcProject(store_id=[$4])\n"
-            + "          JdbcTableScan(table=[[foodmart, sales_fact_1997]])\n");
+            "select count(*) as c from \"foodmart\".\"store\" as p1 join \"foodmart\".\"store\" as p2 using (\"store_id\")")
+        .returns("C=25\n")
+        .explainContains("JdbcToEnumerableConverter\n"
+            + "  JdbcAggregate(group=[{}], C=[COUNT()])\n"
+            + "    JdbcProject(DUMMY=[0])\n"
+            + "      JdbcJoin(condition=[=($0, $1)], joinType=[inner])\n"
+            + "        JdbcProject(store_id=[$0])\n"
+            + "          JdbcTableScan(table=[[foodmart, store]])\n"
+            + "        JdbcProject(store_id=[$0])\n"
+            + "          JdbcTableScan(table=[[foodmart, store]])\n");
   }
 
   /** Tests composite GROUP BY where one of the columns has NULL values. */
@@ -4499,6 +4410,11 @@ public class JdbcTest {
                   .with(CalciteAssert.Config.FOODMART_CLONE)
                   .connect();
             }
+            if (name.equals("scott")) {
+              return CalciteAssert.that()
+                  .with(CalciteAssert.Config.SCOTT)
+                  .connect();
+            }
             if (name.equals("post")) {
               return CalciteAssert.that()
                   .with(CalciteAssert.Config.REGULAR)
@@ -4644,8 +4560,21 @@ public class JdbcTest {
                           + "from \"hr\".\"emps\"\n"
                           + "where \"deptno\" < ? and \"name\" like ?");
 
+                  // execute with vars unbound - gives error
+                  ResultSet resultSet;
+                  try {
+                    resultSet = preparedStatement.executeQuery();
+                    fail("expected error, got " + resultSet);
+                  } catch (SQLException e) {
+                    assertThat(e.getMessage(),
+                        equalTo(
+                            "exception while executing query: unbound parameter"));
+                  }
+
                   // execute with both vars null - no results
-                  ResultSet resultSet = preparedStatement.executeQuery();
+                  preparedStatement.setNull(1, java.sql.Types.INTEGER);
+                  preparedStatement.setNull(2, java.sql.Types.VARCHAR);
+                  resultSet = preparedStatement.executeQuery();
                   assertFalse(resultSet.next());
 
                   // execute with ?0=15, ?1='%' - 3 rows
@@ -5943,7 +5872,7 @@ public class JdbcTest {
               }
             })
         .returns("C=0\n");
-    switch (CalciteAssert.CONNECTION_SPEC) {
+    switch (CalciteAssert.DB) {
     case HSQLDB:
       assertThat(Util.toLinux(sqls[0]),
           equalTo("SELECT COUNT(*) AS \"C\"\n"
@@ -6135,6 +6064,66 @@ public class JdbcTest {
         .query("select [DID] from (select deptid as did FROM \n "
             + "     ( values (1), (2) ) as T1([deptid]) ) ")
         .returnsUnordered("DID=1", "DID=2");
+  }
+
+  /**
+   * Test case for
+   * <a href="https://issues.apache.org/jira/browse/CALCITE-596">[CALCITE-596]
+   * JDBC adapter incorrectly reads null values as 0</a>.
+   */
+  @Test public void testPrimitiveColumnsWithNullValues() throws Exception {
+    String hsqldbMemUrl = "jdbc:hsqldb:mem:.";
+    Connection baseConnection = DriverManager.getConnection(hsqldbMemUrl);
+    Statement baseStmt = baseConnection.createStatement();
+    baseStmt.execute("CREATE TABLE T1 (\n"
+        + "ID INTEGER,\n"
+        + "VALS DOUBLE)");
+    baseStmt.execute("INSERT INTO T1 VALUES (1, 1.0)");
+    baseStmt.execute("INSERT INTO T1 VALUES (2, null)");
+    baseStmt.execute("INSERT INTO T1 VALUES (null, 2.0)");
+
+    baseStmt.close();
+    baseConnection.commit();
+
+    Properties info = new Properties();
+    info.put("model",
+      "inline:"
+      + "{\n"
+      + "  version: '1.0',\n"
+      + "  defaultSchema: 'BASEJDBC',\n"
+      + "  schemas: [\n"
+      + "     {\n"
+      + "       type: 'jdbc',\n"
+      + "       name: 'BASEJDBC',\n"
+      + "       jdbcDriver: '" + jdbcDriver.class.getName() + "',\n"
+      + "       jdbcUrl: '" + hsqldbMemUrl + "',\n"
+      + "       jdbcCatalog: null,\n"
+      + "       jdbcSchema: null\n"
+      + "     }\n"
+      + "  ]\n"
+      + "}");
+
+    Connection calciteConnection = DriverManager.getConnection(
+      "jdbc:calcite:", info);
+
+    ResultSet rs = calciteConnection.prepareStatement("select * from t1")
+      .executeQuery();
+
+    assertThat(rs.next(), is(true));
+    assertThat((Integer) rs.getObject("ID"), equalTo(1));
+    assertThat((Double) rs.getObject("VALS"), equalTo(1.0));
+
+    assertThat(rs.next(), is(true));
+    assertThat((Integer) rs.getObject("ID"), equalTo(2));
+    assertThat((Double) rs.getObject("VALS"), nullValue());
+
+    assertThat(rs.next(), is(true));
+    assertThat(rs.getObject("ID"), nullValue());
+    assertThat((Double) rs.getObject("VALS"), equalTo(2.0));
+
+    rs.close();
+    calciteConnection.close();
+
   }
 
   // Disable checkstyle, so it doesn't complain about fields like "customer_id".

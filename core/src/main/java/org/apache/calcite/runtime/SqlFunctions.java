@@ -693,6 +693,10 @@ public class SqlFunctions {
     return Math.floor(b0);
   }
 
+  public static float floor(float b0) {
+    return (float) Math.floor(b0);
+  }
+
   public static BigDecimal floor(BigDecimal b0) {
     return b0.setScale(0, BigDecimal.ROUND_FLOOR);
   }
@@ -748,6 +752,10 @@ public class SqlFunctions {
 
   public static double ceil(double b0) {
     return Math.ceil(b0);
+  }
+
+  public static float ceil(float b0) {
+    return (float) Math.ceil(b0);
   }
 
   public static BigDecimal ceil(BigDecimal b0) {
@@ -923,6 +931,21 @@ public class SqlFunctions {
   /** Boolean comparison. */
   public static int compare(boolean x, boolean y) {
     return x == y ? 0 : x ? 1 : -1;
+  }
+
+  /** Divide, rounding towards negative infinity. */
+  public static long floorDiv(long x, long y) {
+    long r = x / y;
+    // if the signs are different and modulo not zero, round down
+    if ((x ^ y) < 0 && (r * y != x)) {
+      r--;
+    }
+    return r;
+  }
+
+  /** Modulo, always returning a non-negative result. */
+  public static long floorMod(long x, long y) {
+    return x - floorDiv(x, y) * y;
   }
 
   /** CAST(FLOAT AS VARCHAR). */

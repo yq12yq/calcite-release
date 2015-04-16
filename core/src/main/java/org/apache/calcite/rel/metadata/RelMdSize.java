@@ -26,6 +26,7 @@ import org.apache.calcite.rel.core.Intersect;
 import org.apache.calcite.rel.core.Join;
 import org.apache.calcite.rel.core.Minus;
 import org.apache.calcite.rel.core.Project;
+import org.apache.calcite.rel.core.SemiJoin;
 import org.apache.calcite.rel.core.Sort;
 import org.apache.calcite.rel.core.TableScan;
 import org.apache.calcite.rel.core.Union;
@@ -172,13 +173,21 @@ public class RelMdSize {
     return list.build();
   }
 
+  public List<Double> averageColumnSizes(SemiJoin rel) {
+    return averageJoinColumnSizes(rel, true);
+  }
+
   public List<Double> averageColumnSizes(Join rel) {
+    return averageJoinColumnSizes(rel, false);
+  }
+
+  private List<Double> averageJoinColumnSizes(Join rel, boolean semijoin) {
     final RelNode left = rel.getLeft();
     final RelNode right = rel.getRight();
     final List<Double> lefts =
         RelMetadataQuery.getAverageColumnSizes(left);
-    final List<Double> rights =
-        RelMetadataQuery.getAverageColumnSizes(right);
+    final List<Double> rights = semijoin
+        ? null : RelMetadataQuery.getAverageColumnSizes(right);
     if (lefts == null && rights == null) {
       return null;
     }
@@ -265,13 +274,14 @@ public class RelMdSize {
     case SMALLINT:
       return 2d;
     case INTEGER:
-    case FLOAT:
     case REAL:
+    case DECIMAL:
     case DATE:
     case TIME:
       return 4d;
     case BIGINT:
     case DOUBLE:
+    case FLOAT: // sic
     case TIMESTAMP:
     case INTERVAL_DAY_TIME:
     case INTERVAL_YEAR_MONTH:
@@ -285,6 +295,12 @@ public class RelMdSize {
     case VARCHAR:
       // Even in large (say VARCHAR(2000)) columns most strings are small
       return Math.min((double) type.getPrecision() * BYTES_PER_CHARACTER, 100d);
+    case ROW:
+      Double average = 0.0;
+      for (RelDataTypeField field : type.getFieldList()) {
+        average += averageTypeValueSize(field.getType());
+      }
+      return average;
     default:
       return null;
     }

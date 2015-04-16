@@ -16,9 +16,6 @@
  */
 package org.apache.calcite.avatica;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Maps;
-
 import java.sql.Array;
 import java.sql.Blob;
 import java.sql.CallableStatement;
@@ -38,8 +35,11 @@ import java.sql.Struct;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Properties;
 import java.util.TimeZone;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 
 /**
@@ -49,29 +49,24 @@ import java.util.concurrent.Executor;
  * <p>Abstract to allow newer versions of JDBC to add methods.
  */
 public abstract class AvaticaConnection implements Connection {
+
   protected int statementCount;
-  private boolean autoCommit;
   private boolean closed;
-  private boolean readOnly;
-  private int transactionIsolation;
   private int holdability;
   private int networkTimeout;
-  private String catalog;
 
-  public final int id;
+  public final String id;
+  public final Meta.ConnectionHandle handle;
   protected final UnregisteredDriver driver;
   protected final AvaticaFactory factory;
   final String url;
   protected final Properties info;
   protected final Meta meta;
-  private String schema;
   protected final AvaticaDatabaseMetaData metaData;
   public final Helper helper = Helper.INSTANCE;
-  public final Map<InternalProperty, Object> properties =
-      new HashMap<InternalProperty, Object>();
-  public final Map<Integer, AvaticaStatement> statementMap = Maps.newHashMap();
-
-  private static int nextId;
+  public final Map<InternalProperty, Object> properties = new HashMap<>();
+  public final Map<Integer, AvaticaStatement> statementMap =
+      new ConcurrentHashMap<>();
 
   /**
    * Creates an AvaticaConnection.
@@ -88,7 +83,8 @@ public abstract class AvaticaConnection implements Connection {
       AvaticaFactory factory,
       String url,
       Properties info) {
-    this.id = nextId++;
+    this.id = UUID.randomUUID().toString();
+    this.handle = new Meta.ConnectionHandle(this.id);
     this.driver = driver;
     this.factory = factory;
     this.url = url;
@@ -132,11 +128,11 @@ public abstract class AvaticaConnection implements Connection {
   }
 
   public void setAutoCommit(boolean autoCommit) throws SQLException {
-    this.autoCommit = autoCommit;
+    meta.connectionSync(handle, new ConnectionPropertiesImpl().setAutoCommit(autoCommit));
   }
 
   public boolean getAutoCommit() throws SQLException {
-    return autoCommit;
+    return meta.connectionSync(handle, new ConnectionPropertiesImpl()).isAutoCommit();
   }
 
   public void commit() throws SQLException {
@@ -154,6 +150,7 @@ public abstract class AvaticaConnection implements Connection {
       // Per specification, if onConnectionClose throws, this method will throw
       // a SQLException, but statement will still be closed.
       try {
+        meta.closeConnection(handle);
         driver.handler.onConnectionClose(this);
       } catch (RuntimeException e) {
         throw helper.createException("While closing connection", e);
@@ -170,27 +167,27 @@ public abstract class AvaticaConnection implements Connection {
   }
 
   public void setReadOnly(boolean readOnly) throws SQLException {
-    this.readOnly = readOnly;
+    meta.connectionSync(handle, new ConnectionPropertiesImpl().setReadOnly(readOnly));
   }
 
   public boolean isReadOnly() throws SQLException {
-    return readOnly;
+    return meta.connectionSync(handle, new ConnectionPropertiesImpl()).isReadOnly();
   }
 
   public void setCatalog(String catalog) throws SQLException {
-    this.catalog = catalog;
+    meta.connectionSync(handle, new ConnectionPropertiesImpl().setCatalog(catalog));
   }
 
   public String getCatalog() {
-    return catalog;
+    return meta.connectionSync(handle, new ConnectionPropertiesImpl()).getCatalog();
   }
 
   public void setTransactionIsolation(int level) throws SQLException {
-    this.transactionIsolation = level;
+    meta.connectionSync(handle, new ConnectionPropertiesImpl().setTransactionIsolation(level));
   }
 
   public int getTransactionIsolation() throws SQLException {
-    return transactionIsolation;
+    return meta.connectionSync(handle, new ConnectionPropertiesImpl()).getTransactionIsolation();
   }
 
   public SQLWarning getWarnings() throws SQLException {
@@ -272,7 +269,14 @@ public abstract class AvaticaConnection implements Connection {
       int resultSetType,
       int resultSetConcurrency,
       int resultSetHoldability) throws SQLException {
-    throw new UnsupportedOperationException(); // TODO:
+    try {
+      final Meta.ConnectionHandle ch = new Meta.ConnectionHandle(id);
+      final Meta.StatementHandle h = meta.prepare(ch, sql, -1);
+      return factory.newPreparedStatement(this, h, h.signature, resultSetType,
+          resultSetConcurrency, resultSetHoldability);
+    } catch (RuntimeException e) {
+      throw helper.createException("while preparing SQL: " + sql, e);
+    }
   }
 
   public CallableStatement prepareCall(
@@ -347,11 +351,11 @@ public abstract class AvaticaConnection implements Connection {
   }
 
   public void setSchema(String schema) throws SQLException {
-    this.schema = schema;
+    meta.connectionSync(handle, new ConnectionPropertiesImpl().setSchema(schema));
   }
 
   public String getSchema() {
-    return schema;
+    return meta.connectionSync(handle, new ConnectionPropertiesImpl()).getSchema();
   }
 
   public void abort(Executor executor) throws SQLException {
@@ -394,12 +398,12 @@ public abstract class AvaticaConnection implements Connection {
    *
    * @param statement     Statement
    * @param signature     Prepared query
-   * @param iterable      List of rows, or null if we need to execute
+   * @param firstFrame    First frame of rows, or null if we need to execute
    * @return Result set
    * @throws java.sql.SQLException if a database error occurs
    */
   protected ResultSet executeQueryInternal(AvaticaStatement statement,
-      Meta.Signature signature, Iterable<Object> iterable) throws SQLException {
+      Meta.Signature signature, Meta.Frame firstFrame) throws SQLException {
     // Close the previous open result set, if there is one.
     synchronized (statement) {
       if (statement.openResultSet != null) {
@@ -415,7 +419,7 @@ public abstract class AvaticaConnection implements Connection {
 
       final TimeZone timeZone = getTimeZone();
       statement.openResultSet =
-          factory.newResultSet(statement, signature, timeZone, iterable);
+          factory.newResultSet(statement, signature, timeZone, firstFrame);
     }
     // Release the monitor before executing, to give another thread the
     // opportunity to call cancel.
@@ -428,11 +432,11 @@ public abstract class AvaticaConnection implements Connection {
     return statement.openResultSet;
   }
 
-  protected ResultSet prepareAndExecuteInternal(
+  protected Meta.ExecuteResult prepareAndExecuteInternal(
       final AvaticaStatement statement, String sql, int maxRowCount)
       throws SQLException {
-    Meta.MetaResultSet x = meta.prepareAndExecute(statement.handle, sql,
-        maxRowCount, new Meta.PrepareCallback() {
+    final Meta.PrepareCallback callback =
+        new Meta.PrepareCallback() {
           public Object getMonitor() {
             return statement;
           }
@@ -450,29 +454,33 @@ public abstract class AvaticaConnection implements Connection {
             }
           }
 
-          public void assign(Meta.Signature signature,
-              Iterable<Object> iterable) throws SQLException {
-            final TimeZone timeZone = getTimeZone();
-            statement.openResultSet =
-                factory.newResultSet(statement, signature, timeZone, iterable);
+          public void assign(Meta.Signature signature, Meta.Frame firstFrame,
+              int updateCount) throws SQLException {
+            if (updateCount != -1) {
+              statement.updateCount = updateCount;
+            } else {
+              final TimeZone timeZone = getTimeZone();
+              statement.openResultSet = factory.newResultSet(statement,
+                  signature, timeZone, firstFrame);
+            }
           }
 
           public void execute() throws SQLException {
-            statement.openResultSet.execute();
+            if (statement.openResultSet != null) {
+              statement.openResultSet.execute();
+            }
           }
-        });
-    assert statement.openResultSet != null;
-    return statement.openResultSet;
+        };
+    return meta.prepareAndExecute(handle, sql, maxRowCount, callback);
   }
 
   protected ResultSet createResultSet(Meta.MetaResultSet metaResultSet)
       throws SQLException {
-    final Meta.StatementHandle h =
-        new Meta.StatementHandle(metaResultSet.statementId);
+    final Meta.StatementHandle h = new Meta.StatementHandle(
+        metaResultSet.connectionId, metaResultSet.statementId, null);
     final AvaticaStatement statement = lookupStatement(h);
-    return executeQueryInternal(statement,
-        metaResultSet.signature,
-        metaResultSet.iterable);
+    return executeQueryInternal(statement, metaResultSet.signature.sanitize(),
+        metaResultSet.firstFrame);
   }
 
   /** Creates a statement wrapper around an existing handle. */
@@ -483,7 +491,7 @@ public abstract class AvaticaConnection implements Connection {
       return statement;
     }
     //noinspection MagicConstant
-    return factory.newStatement(this, Preconditions.checkNotNull(h),
+    return factory.newStatement(this, Objects.requireNonNull(h),
         ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY, holdability);
   }
 

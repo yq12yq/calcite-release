@@ -16,6 +16,7 @@
  */
 package org.apache.calcite.avatica.util;
 
+import org.apache.calcite.avatica.AvaticaParameter;
 import org.apache.calcite.avatica.AvaticaUtils;
 import org.apache.calcite.avatica.ColumnMetaData;
 
@@ -63,7 +64,7 @@ public abstract class AbstractCursor implements Cursor {
 
   public List<Accessor> createAccessors(List<ColumnMetaData> types,
       Calendar localCalendar, ArrayImpl.Factory factory) {
-    List<Accessor> accessors = new ArrayList<Accessor>();
+    List<Accessor> accessors = new ArrayList<>();
     for (ColumnMetaData type : types) {
       accessors.add(
           createAccessor(type, accessors.size(), localCalendar, factory));
@@ -71,12 +72,27 @@ public abstract class AbstractCursor implements Cursor {
     return accessors;
   }
 
-  protected Accessor createAccessor(ColumnMetaData type, int ordinal,
+  protected Accessor createAccessor(ColumnMetaData columnMetaData, int ordinal,
       Calendar localCalendar, ArrayImpl.Factory factory) {
     // Create an accessor appropriate to the underlying type; the accessor
     // can convert to any type in the same family.
     Getter getter = createGetter(ordinal);
-    switch (type.type.type) {
+    switch (columnMetaData.type.rep) {
+    case OBJECT:
+      switch (columnMetaData.type.id) {
+      case Types.TINYINT:
+      case Types.SMALLINT:
+      case Types.INTEGER:
+      case Types.BIGINT:
+      case Types.REAL:
+      case Types.FLOAT:
+      case Types.DOUBLE:
+      case Types.NUMERIC:
+      case Types.DECIMAL:
+        return new NumberAccessor(getter, columnMetaData.scale);
+      }
+    }
+    switch (columnMetaData.type.id) {
     case Types.TINYINT:
       return new ByteAccessor(getter);
     case Types.SMALLINT:
@@ -87,20 +103,20 @@ public abstract class AbstractCursor implements Cursor {
       return new LongAccessor(getter);
     case Types.BOOLEAN:
       return new BooleanAccessor(getter);
-    case Types.FLOAT:
     case Types.REAL:
       return new FloatAccessor(getter);
+    case Types.FLOAT:
     case Types.DOUBLE:
       return new DoubleAccessor(getter);
     case Types.DECIMAL:
       return new BigDecimalAccessor(getter);
     case Types.CHAR:
-      switch (type.type.representation) {
+      switch (columnMetaData.type.rep) {
       case PRIMITIVE_CHAR:
       case CHARACTER:
-        return new StringFromCharAccessor(getter, type.displaySize);
+        return new StringFromCharAccessor(getter, columnMetaData.displaySize);
       default:
-        return new FixedStringAccessor(getter, type.displaySize);
+        return new FixedStringAccessor(getter, columnMetaData.displaySize);
       }
     case Types.VARCHAR:
       return new StringAccessor(getter);
@@ -108,60 +124,62 @@ public abstract class AbstractCursor implements Cursor {
     case Types.VARBINARY:
       return new BinaryAccessor(getter);
     case Types.DATE:
-      switch (type.type.representation) {
+      switch (columnMetaData.type.rep) {
       case PRIMITIVE_INT:
       case INTEGER:
-        return new DateFromIntAccessor(getter, localCalendar);
+      case OBJECT:
+        return new DateFromNumberAccessor(getter, localCalendar);
       case JAVA_SQL_DATE:
         return new DateAccessor(getter, localCalendar);
       default:
-        throw new AssertionError("bad " + type.type.representation);
+        throw new AssertionError("bad " + columnMetaData.type.rep);
       }
     case Types.TIME:
-      switch (type.type.representation) {
+      switch (columnMetaData.type.rep) {
       case PRIMITIVE_INT:
       case INTEGER:
-        return new TimeFromIntAccessor(getter, localCalendar);
+        return new TimeFromNumberAccessor(getter, localCalendar);
       case JAVA_SQL_TIME:
         return new TimeAccessor(getter, localCalendar);
       default:
-        throw new AssertionError("bad " + type.type.representation);
+        throw new AssertionError("bad " + columnMetaData.type.rep);
       }
     case Types.TIMESTAMP:
-      switch (type.type.representation) {
+      switch (columnMetaData.type.rep) {
       case PRIMITIVE_LONG:
       case LONG:
-        return new TimestampFromLongAccessor(getter, localCalendar);
+        return new TimestampFromNumberAccessor(getter, localCalendar);
       case JAVA_SQL_TIMESTAMP:
         return new TimestampAccessor(getter, localCalendar);
       case JAVA_UTIL_DATE:
         return new TimestampFromUtilDateAccessor(getter, localCalendar);
       default:
-        throw new AssertionError("bad " + type.type.representation);
+        throw new AssertionError("bad " + columnMetaData.type.rep);
       }
     case Types.ARRAY:
       return new ArrayAccessor(getter,
-          ((ColumnMetaData.ArrayType) type.type).component, factory);
+          ((ColumnMetaData.ArrayType) columnMetaData.type).component, factory);
     case Types.JAVA_OBJECT:
     case Types.STRUCT:
     case Types.OTHER: // e.g. map
-      if (type.type.typeName.startsWith("INTERVAL_")) {
-        int end = type.type.typeName.indexOf("(");
+      if (columnMetaData.type.name.startsWith("INTERVAL_")) {
+        int end = columnMetaData.type.name.indexOf("(");
         if (end < 0) {
-          end = type.type.typeName.length();
+          end = columnMetaData.type.name.length();
         }
         TimeUnitRange range =
             TimeUnitRange.valueOf(
-                type.type.typeName.substring("INTERVAL_".length(), end));
+                columnMetaData.type.name.substring("INTERVAL_".length(), end));
         if (range.monthly()) {
           return new IntervalYearMonthAccessor(getter, range);
         } else {
-          return new IntervalDayTimeAccessor(getter, range, type.scale);
+          return new IntervalDayTimeAccessor(getter, range,
+              columnMetaData.scale);
         }
       }
       return new ObjectAccessor(getter);
     default:
-      throw new RuntimeException("unknown type " + type.type.type);
+      throw new RuntimeException("unknown type " + columnMetaData.type.id);
     }
   }
 
@@ -617,6 +635,40 @@ public abstract class AbstractCursor implements Cursor {
   }
 
   /**
+   * Accessor that assumes that the underlying value is a {@link Number};
+   * corresponds to {@link java.sql.Types#NUMERIC}.
+   *
+   * <p>This is useful when numbers have been translated over JSON. JSON
+   * converts a 0L (0 long) value to the string "0" and back to 0 (0 int).
+   * So you cannot be sure that the source and target type are the same.
+   */
+  private static class NumberAccessor extends BigNumberAccessor {
+    private final int scale;
+
+    public NumberAccessor(Getter getter, int scale) {
+      super(getter);
+      this.scale = scale;
+    }
+
+    protected Number getNumber() {
+      return (Number) super.getObject();
+    }
+
+    public BigDecimal getBigDecimal(int scale) {
+      Number n = getNumber();
+      if (n == null) {
+        return null;
+      }
+      return AvaticaParameter.toBigDecimal(n)
+          .setScale(scale, BigDecimal.ROUND_UNNECESSARY);
+    }
+
+    public BigDecimal getBigDecimal() {
+      return getBigDecimal(scale);
+    }
+  }
+
+  /**
    * Accessor that assumes that the underlying value is a {@link String};
    * corresponds to {@link java.sql.Types#CHAR}
    * and {@link java.sql.Types#VARCHAR}.
@@ -692,11 +744,11 @@ public abstract class AbstractCursor implements Cursor {
    * in its default representation {@code int};
    * corresponds to {@link java.sql.Types#DATE}.
    */
-  private static class DateFromIntAccessor extends IntAccessor {
+  private static class DateFromNumberAccessor extends NumberAccessor {
     private final Calendar localCalendar;
 
-    public DateFromIntAccessor(Getter getter, Calendar localCalendar) {
-      super(getter);
+    public DateFromNumberAccessor(Getter getter, Calendar localCalendar) {
+      super(getter, 0);
       this.localCalendar = localCalendar;
     }
 
@@ -705,27 +757,28 @@ public abstract class AbstractCursor implements Cursor {
     }
 
     @Override public Date getDate(Calendar calendar) {
-      final int v = getInt();
-      if (v == 0 && getter.wasNull()) {
+      final Number v = getNumber();
+      if (v == null) {
         return null;
       }
-      return longToDate((long) v * DateTimeUtils.MILLIS_PER_DAY, calendar);
+      return longToDate(v.longValue() * DateTimeUtils.MILLIS_PER_DAY, calendar);
     }
 
     @Override public Timestamp getTimestamp(Calendar calendar) {
-      final int v = getInt();
-      if (v == 0 && getter.wasNull()) {
+      final Number v = getNumber();
+      if (v == null) {
         return null;
       }
-      return longToTimestamp((long) v * DateTimeUtils.MILLIS_PER_DAY, calendar);
+      return longToTimestamp(v.longValue() * DateTimeUtils.MILLIS_PER_DAY,
+          calendar);
     }
 
     @Override public String getString() {
-      final int v = getInt();
-      if (v == 0 && wasNull()) {
+      final Number v = getNumber();
+      if (v == null) {
         return null;
       }
-      return dateAsString(v, null);
+      return dateAsString(v.intValue(), null);
     }
   }
 
@@ -734,11 +787,11 @@ public abstract class AbstractCursor implements Cursor {
    * in its default representation {@code int};
    * corresponds to {@link java.sql.Types#TIME}.
    */
-  private static class TimeFromIntAccessor extends IntAccessor {
+  private static class TimeFromNumberAccessor extends NumberAccessor {
     private final Calendar localCalendar;
 
-    public TimeFromIntAccessor(Getter getter, Calendar localCalendar) {
-      super(getter);
+    public TimeFromNumberAccessor(Getter getter, Calendar localCalendar) {
+      super(getter, 0);
       this.localCalendar = localCalendar;
     }
 
@@ -747,27 +800,27 @@ public abstract class AbstractCursor implements Cursor {
     }
 
     @Override public Time getTime(Calendar calendar) {
-      final int v = getInt();
-      if (v == 0 && wasNull()) {
+      final Number v = getNumber();
+      if (v == null) {
         return null;
       }
-      return intToTime(v, calendar);
+      return intToTime(v.intValue(), calendar);
     }
 
     @Override public Timestamp getTimestamp(Calendar calendar) {
-      final long v = getLong();
-      if (v == 0 && wasNull()) {
+      final Number v = getNumber();
+      if (v == null) {
         return null;
       }
-      return longToTimestamp(v, calendar);
+      return longToTimestamp(v.longValue(), calendar);
     }
 
     @Override public String getString() {
-      final int v = getInt();
-      if (v == 0 && wasNull()) {
+      final Number v = getNumber();
+      if (v == null) {
         return null;
       }
-      return timeAsString(v, null);
+      return timeAsString(v.intValue(), null);
     }
   }
 
@@ -776,11 +829,11 @@ public abstract class AbstractCursor implements Cursor {
    * in its default representation {@code long};
    * corresponds to {@link java.sql.Types#TIMESTAMP}.
    */
-  private static class TimestampFromLongAccessor extends LongAccessor {
+  private static class TimestampFromNumberAccessor extends NumberAccessor {
     private final Calendar localCalendar;
 
-    public TimestampFromLongAccessor(Getter getter, Calendar localCalendar) {
-      super(getter);
+    public TimestampFromNumberAccessor(Getter getter, Calendar localCalendar) {
+      super(getter, 0);
       this.localCalendar = localCalendar;
     }
 
@@ -789,19 +842,19 @@ public abstract class AbstractCursor implements Cursor {
     }
 
     @Override public Timestamp getTimestamp(Calendar calendar) {
-      final long v = getLong();
-      if (v == 0 && wasNull()) {
+      final Number v = getNumber();
+      if (v == null) {
         return null;
       }
-      return longToTimestamp(v, calendar);
+      return longToTimestamp(v.longValue(), calendar);
     }
 
     @Override public String getString() {
-      final long v = getLong();
-      if (v == 0L && wasNull()) {
+      final Number v = getNumber();
+      if (v == null) {
         return null;
       }
-      return timestampAsString(v, null);
+      return timestampAsString(v.longValue(), null);
     }
   }
 

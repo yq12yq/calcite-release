@@ -32,7 +32,7 @@ import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Time;
 import java.sql.Timestamp;
-import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Calendar;
 import java.util.List;
 
@@ -76,11 +76,7 @@ public abstract class AvaticaPreparedStatement
   }
 
   @Override protected List<Object> getParameterValues() {
-    final List<Object> list = new ArrayList<Object>();
-    for (Object o : slots) {
-      list.add(o == AvaticaParameter.DUMMY_VALUE ? null : o);
-    }
-    return list;
+    return Arrays.asList(slots);
   }
 
   // implement PreparedStatement
@@ -94,7 +90,8 @@ public abstract class AvaticaPreparedStatement
   }
 
   public int executeUpdate() throws SQLException {
-    throw new UnsupportedOperationException(); // TODO:
+    getConnection().executeQueryInternal(this, signature, null);
+    return updateCount;
   }
 
   public void setNull(int parameterIndex, int sqlType) throws SQLException {
@@ -174,7 +171,9 @@ public abstract class AvaticaPreparedStatement
   }
 
   public void clearParameters() throws SQLException {
-    throw new UnsupportedOperationException();
+    for (int i = 0; i < slots.length; i++) {
+      slots[i] = null;
+    }
   }
 
   public void setObject(int parameterIndex, Object x, int targetSqlType)
@@ -188,7 +187,10 @@ public abstract class AvaticaPreparedStatement
   }
 
   public boolean execute() throws SQLException {
-    throw new UnsupportedOperationException();
+    getConnection().executeQueryInternal(this, signature, null);
+    // Result set is null for DML or DDL.
+    // Result set is closed if user cancelled the query.
+    return openResultSet != null && !openResultSet.isClosed();
   }
 
   public void addBatch() throws SQLException {

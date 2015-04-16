@@ -20,12 +20,12 @@ limitations under the License.
   <parent>
     <groupId>org.apache.calcite</groupId>
     <artifactId>calcite</artifactId>
-    <version>1.1.0-incubating</version>
+    <version>1.2.0-incubating</version>
   </parent>
 
   <artifactId>calcite-plus</artifactId>
   <packaging>jar</packaging>
-  <version>1.1.0-incubating</version>
+  <version>1.2.0-incubating</version>
   <name>Calcite Plus</name>
   <description>Miscellaneous extras for Calcite</description>
 
@@ -47,6 +47,10 @@ limitations under the License.
       <type>test-jar</type>
       <scope>test</scope>
     </dependency>
+    <dependency>
+      <groupId>org.apache.calcite</groupId>
+      <artifactId>calcite-linq4j</artifactId>
+    </dependency>
 
     <dependency>
       <groupId>com.google.guava</groupId>
@@ -60,9 +64,19 @@ limitations under the License.
       <type>jar</type>
     </dependency>
     <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <groupId>net.hydromatic</groupId>
       <artifactId>tpcds</artifactId>
       <type>jar</type>
+    </dependency>
+    <dependency>
+      <groupId>org.hamcrest</groupId>
+      <artifactId>hamcrest-core</artifactId>
+      <scope>test</scope>
     </dependency>
   </dependencies>
 
