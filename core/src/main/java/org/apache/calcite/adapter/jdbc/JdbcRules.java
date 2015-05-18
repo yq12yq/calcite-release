@@ -131,6 +131,21 @@ public class JdbcRules {
         new JdbcValuesRule(out));
   }
 
+  static final ImmutableList<SqlAggFunction> AGG_FUNCS;
+  static final ImmutableList<SqlAggFunction> MYSQL_AGG_FUNCS;
+
+  static {
+    ImmutableList.Builder<SqlAggFunction> builder = ImmutableList.builder();
+    builder.add(SqlStdOperatorTable.COUNT);
+    builder.add(SqlStdOperatorTable.SUM);
+    builder.add(SqlStdOperatorTable.SUM0);
+    builder.add(SqlStdOperatorTable.MIN);
+    builder.add(SqlStdOperatorTable.MAX);
+    AGG_FUNCS = builder.build();
+    builder.add(SqlStdOperatorTable.SINGLE_VALUE);
+    MYSQL_AGG_FUNCS = builder.build();
+  }
+
   private static void addSelect(
       List<SqlNode> selectList, SqlNode node, RelDataType rowType) {
     String name = rowType.getFieldNames().get(selectList.size());
@@ -678,6 +693,27 @@ public class JdbcRules {
         throws InvalidRelException {
       super(cluster, traitSet, input, indicator, groupSet, groupSets, aggCalls);
       assert getConvention() instanceof JdbcConvention;
+      assert this.groupSets.size() == 1 : "Grouping sets not supported";
+      assert !this.indicator;
+      final SqlDialect dialect = ((JdbcConvention) getConvention()).dialect;
+      for (AggregateCall aggCall : aggCalls) {
+        if (!canImplement(aggCall.getAggregation(), dialect)) {
+          throw new InvalidRelException("cannot implement aggregate function "
+              + aggCall.getAggregation());
+        }
+      }
+    }
+
+    /** Returns whether this JDBC data source can implement a given aggregate
+     * function. */
+    private boolean canImplement(SqlAggFunction aggregation,
+        SqlDialect sqlDialect) {
+      switch (sqlDialect.getDatabaseProduct()) {
+      case MYSQL:
+        return MYSQL_AGG_FUNCS.contains(aggregation);
+      default:
+        return AGG_FUNCS.contains(aggregation);
+      }
     }
 
     @Override public JdbcAggregate copy(RelTraitSet traitSet, RelNode input,
@@ -706,7 +742,13 @@ public class JdbcRules {
         groupByList.add(field);
       }
       for (AggregateCall aggCall : aggCalls) {
-        addSelect(selectList, builder.context.toSql(aggCall), getRowType());
+        //addSelect(selectList, builder.context.toSql(aggCall), getRowType());
+        SqlNode aggCallSqlNode = builder.context.toSql(aggCall);
+        if (aggCall.getAggregation() instanceof SqlSingleValueAggFunction) {
+          aggCallSqlNode =
+              rewriteSingleValueExpr(aggCallSqlNode, implementor.dialect);
+        }
+        addSelect(selectList, aggCallSqlNode, getRowType());
       }
       builder.setSelect(new SqlNodeList(selectList, POS));
       if (!groupByList.isEmpty() || aggCalls.isEmpty()) {
@@ -715,6 +757,85 @@ public class JdbcRules {
         builder.setGroupBy(new SqlNodeList(groupByList, POS));
       }
       return builder.result();
+    }
+
+    /** Rewrite SINGLE_VALUE into expression based on database variants
+     *  E.g. HSQLDB, MYSQL, ORACLE, etc
+     */
+    private SqlNode rewriteSingleValueExpr(SqlNode aggCall,
+        SqlDialect sqlDialect) {
+      final SqlNode operand = ((SqlBasicCall) aggCall).operand(0);
+      final SqlNode caseOperand;
+      final SqlNode elseExpr;
+      final SqlNode countCall =
+          SqlStdOperatorTable.COUNT.createCall(POS, operand);
+
+      final SqlLiteral nullLiteral = SqlLiteral.createNull(POS);
+      final SqlNode wrappedOperand;
+      switch (sqlDialect.getDatabaseProduct()) {
+      case MYSQL:
+      case HSQLDB:
+        // For MySQL, generate
+        //   CASE COUNT(*)
+        //   WHEN 0 THEN NULL
+        //   WHEN 1 THEN <result>
+        //   ELSE (SELECT NULL UNION ALL SELECT NULL)
+        //   END
+        //
+        // For hsqldb, generate
+        //   CASE COUNT(*)
+        //   WHEN 0 THEN NULL
+        //   WHEN 1 THEN MIN(<result>)
+        //   ELSE (VALUES 1 UNION ALL VALUES 1)
+        //   END
+        caseOperand = countCall;
+
+        final SqlNodeList selectList = new SqlNodeList(POS);
+        selectList.add(nullLiteral);
+        final SqlNode unionOperand;
+        switch (sqlDialect.getDatabaseProduct()) {
+        case MYSQL:
+          wrappedOperand = operand;
+          unionOperand = new SqlSelect(POS, SqlNodeList.EMPTY, selectList,
+              null, null, null, null, SqlNodeList.EMPTY, null, null, null);
+          break;
+        default:
+          wrappedOperand = SqlStdOperatorTable.MIN.createCall(POS, operand);
+          unionOperand = SqlStdOperatorTable.VALUES.createCall(POS,
+              SqlLiteral.createApproxNumeric("0", POS));
+        }
+
+        SqlCall unionAll = SqlStdOperatorTable.UNION_ALL
+            .createCall(POS, unionOperand, unionOperand);
+
+        final SqlNodeList subQuery = new SqlNodeList(POS);
+        subQuery.add(unionAll);
+
+        final SqlNodeList selectList2 = new SqlNodeList(POS);
+        selectList2.add(nullLiteral);
+        elseExpr = SqlStdOperatorTable.SCALAR_QUERY.createCall(POS, subQuery);
+        break;
+
+      default:
+        LOGGER.fine("SINGLE_VALUE rewrite not supported for "
+            + sqlDialect.getDatabaseProduct());
+        return aggCall;
+      }
+
+      final SqlNodeList whenList = new SqlNodeList(POS);
+      whenList.add(SqlLiteral.createExactNumeric("0", POS));
+      whenList.add(SqlLiteral.createExactNumeric("1", POS));
+
+      final SqlNodeList thenList = new SqlNodeList(POS);
+      thenList.add(nullLiteral);
+      thenList.add(wrappedOperand);
+
+      SqlNode caseExpr =
+          new SqlCase(POS, caseOperand, whenList, thenList, elseExpr);
+
+      LOGGER.fine("SINGLE_VALUE rewritten into [" + caseExpr + "]");
+
+      return caseExpr;
     }
   }
 
