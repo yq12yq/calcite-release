@@ -4,6 +4,7 @@
 
 Apache Calcite is a dynamic data management framework.
 
+<<<<<<< HEAD
 It was formerly called Optiq.
 
 ## Getting Calcite
@@ -229,3 +230,6 @@ process have stabilized in a manner consistent with other successful
 ASF projects. While incubation status is not necessarily a reflection
 of the completeness or stability of the code, it does indicate that
 the project has yet to be fully endorsed by the ASF.
+=======
+For more details, see the [home page](http://calcite.incubator.apache.org).
+>>>>>>> 5c049bc... [CALCITE-355] Web site
