@@ -1,0 +1,18 @@
+Changes only in Hortonworks Dal github and not in Apache Calcite
+release 1.2.0-incubating and hence not covered by CHANGES.txt.
+
+INCOMPATIBLE CHANGES
+
+none
+
+NEW FEATURES
+
+none
+
+IMPROVEMENTS
+
+none
+
+BUG FIXES
+
+none
