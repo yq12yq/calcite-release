@@ -72,14 +72,6 @@ limitations under the License.
       </repository>
    </distributionManagement>
 
-  <distributionManagement>
-      <repository>
-         <id>${repo.id}</id>
-         <name>Internal Repository</name>
-         <url>${internal.maven.repo}</url>
-      </repository>
-   </distributionManagement>
-
   <modules>
     <module>avatica</module>
     <module>avatica-server</module>
