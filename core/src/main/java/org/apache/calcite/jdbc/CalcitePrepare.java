@@ -74,7 +74,7 @@ public interface CalcitePrepare {
       String sql,
       Queryable<T> expression,
       Type elementType,
-      int maxRowCount);
+      long maxRowCount);
 
   <T> CalciteSignature<T> prepareQueryable(
       Context context,
@@ -225,7 +225,7 @@ public interface CalcitePrepare {
    * statement directly, without an explicit prepare step. */
   public static class CalciteSignature<T> extends Meta.Signature {
     @JsonIgnore public final RelDataType rowType;
-    private final int maxRowCount;
+    private final long maxRowCount;
     private final Bindable<T> bindable;
 
     public CalciteSignature(String sql,
@@ -234,7 +234,7 @@ public interface CalcitePrepare {
         RelDataType rowType,
         List<ColumnMetaData> columns,
         Meta.CursorFactory cursorFactory,
-        int maxRowCount,
+        long maxRowCount,
         Bindable<T> bindable) {
       super(columns, sql, parameterList, internalParameters, cursorFactory);
       this.rowType = rowType;
