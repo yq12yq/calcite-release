@@ -360,6 +360,64 @@ public class MaterializationService {
     return INSTANCE;
   }
 
+  /**
+   * Creates tables that represent a materialized view.
+   */
+  public interface TableFactory {
+    Table createTable(CalciteSchema schema, String viewSql,
+        List<String> viewSchemaPath);
+  }
+
+  /**
+   * Default implementation of {@link TableFactory}.
+   * Creates a table using {@link CloneSchema}.
+   */
+  public static class DefaultTableFactory implements TableFactory {
+    public Table createTable(CalciteSchema schema, String viewSql,
+        List<String> viewSchemaPath) {
+      final CalciteConnection connection =
+          CalciteMetaImpl.connect(schema.root(), null);
+      final ImmutableMap<CalciteConnectionProperty, String> map =
+          ImmutableMap.of(CalciteConnectionProperty.CREATE_MATERIALIZATIONS,
+              "false");
+      final CalcitePrepare.CalciteSignature<Object> calciteSignature =
+          Schemas.prepare(connection, schema, viewSchemaPath, viewSql, map);
+      return CloneSchema.createCloneTable(connection.getTypeFactory(),
+          RelDataTypeImpl.proto(calciteSignature.rowType),
+          calciteSignature.getCollationList(),
+          Lists.transform(calciteSignature.columns,
+              new Function<ColumnMetaData, ColumnMetaData.Rep>() {
+                public ColumnMetaData.Rep apply(ColumnMetaData column) {
+                  return column.type.rep;
+                }
+              }),
+          new AbstractQueryable<Object>() {
+            public Enumerator<Object> enumerator() {
+              final DataContext dataContext =
+                  Schemas.createDataContext(connection);
+              return calciteSignature.enumerable(dataContext).enumerator();
+            }
+
+            public Type getElementType() {
+              return Object.class;
+            }
+
+            public Expression getExpression() {
+              throw new UnsupportedOperationException();
+            }
+
+            public QueryProvider getProvider() {
+              return connection;
+            }
+
+            public Iterator<Object> iterator() {
+              final DataContext dataContext =
+                  Schemas.createDataContext(connection);
+              return calciteSignature.enumerable(dataContext).iterator();
+            }
+          });
+    }
+  }
 }
 
 // End MaterializationService.java
