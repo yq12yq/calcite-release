@@ -591,8 +591,8 @@ public class JdbcMeta implements Meta {
     }
   }
 
-  @Override
-  public void openConnection(ConnectionHandle ch, Map<String, String> info) {
+  @Override public void openConnection(ConnectionHandle ch,
+      Map<String, String> info) {
     Properties fullInfo = new Properties();
     fullInfo.putAll(this.info);
     if (info != null) {
