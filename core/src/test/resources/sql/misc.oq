@@ -938,4 +938,128 @@ select * from "scott".emp where '7369' between empno and '7876';
 
 !ok
 
+# [CALCITE-546] Allow table, column and field called "*"
+# See [DRILL-3859], [DRILL-3860].
+SELECT * FROM (VALUES (0, 0)) AS T(A, "*");
++---+---+
+| A | * |
++---+---+
+| 0 | 0 |
++---+---+
+(1 row)
+
+!ok
+
+SELECT a FROM (VALUES (0, 0)) AS T(A, "*");
++---+
+| A |
++---+
+| 0 |
++---+
+(1 row)
+
+!ok
+
+SELECT b FROM (VALUES (0, 0)) AS T(A, "*");
+Column 'B' not found in any table
+!error
+
+# See [DRILL-3860].
+SELECT "a" FROM (VALUES (1, 2, 3, 4)) AS T("a", "A", ".", "*");
++---+
+| a |
++---+
+| 1 |
++---+
+(1 row)
+
+!ok
+
+SELECT "A" FROM (VALUES (1, 2, 3, 4)) AS T("a", "A", ".", "*");
++---+
+| A |
++---+
+| 2 |
++---+
+(1 row)
+
+!ok
+
+SELECT "." FROM (VALUES (1, 2, 3, 4)) AS T("a", "A", ".", "*");
++---+
+| . |
++---+
+| 3 |
++---+
+(1 row)
+
+!ok
+
+SELECT "*" FROM (VALUES (1, 2, 3, 4)) AS T("a", "A", ".", "*");
++---+
+| * |
++---+
+| 4 |
++---+
+(1 row)
+
+!ok
+
+SELECT * FROM (VALUES (1, 2, 3, 4)) AS T("a", "A", ".", "*");
++---+---+---+---+
+| a | A | . | * |
++---+---+---+---+
+| 1 | 2 | 3 | 4 |
++---+---+---+---+
+(1 row)
+
+!ok
+
+# Implicit ROW
+select deptno, (empno, deptno) as r
+from "scott".emp;
++--------+------------+
+| DEPTNO | R          |
++--------+------------+
+|     10 | {7782, 10} |
+|     10 | {7839, 10} |
+|     10 | {7934, 10} |
+|     20 | {7369, 20} |
+|     20 | {7566, 20} |
+|     20 | {7788, 20} |
+|     20 | {7876, 20} |
+|     20 | {7902, 20} |
+|     30 | {7499, 30} |
+|     30 | {7521, 30} |
+|     30 | {7654, 30} |
+|     30 | {7698, 30} |
+|     30 | {7844, 30} |
+|     30 | {7900, 30} |
++--------+------------+
+(14 rows)
+
+!ok
+
+# Explicit ROW
+select deptno, row (empno, deptno) as r
+from "scott".emp;
+ROW expression encountered in illegal context
+!error
+
+# [CALCITE-877] Allow ROW as argument to COLLECT
+select deptno, collect(r) as empnos
+from (select deptno, (empno, deptno) as r
+  from "scott".emp)
+group by deptno;
++--------+--------------------------------------------------------------------------+
+| DEPTNO | EMPNOS                                                                   |
++--------+--------------------------------------------------------------------------+
+|     10 | [{7782, 10}, {7839, 10}, {7934, 10}]                                     |
+|     20 | [{7369, 20}, {7566, 20}, {7788, 20}, {7876, 20}, {7902, 20}]             |
+|     30 | [{7499, 30}, {7521, 30}, {7654, 30}, {7698, 30}, {7844, 30}, {7900, 30}] |
++--------+--------------------------------------------------------------------------+
+(3 rows)
+
+!ok
+
 # End misc.oq
