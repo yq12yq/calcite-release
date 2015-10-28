@@ -79,74 +79,10 @@ public class JdbcMeta implements Meta {
    * created by this JdbcMeta. */
   private final AtomicInteger statementIdGenerator = new AtomicInteger();
 
-  private static final String DEFAULT_CONN_ID =
-      UUID.fromString("00000000-0000-0000-0000-000000000000").toString();
-
   private final String url;
   private final Properties info;
   private final Cache<String, Connection> connectionCache;
   private final Cache<Integer, StatementInfo> statementCache;
-
-  /**
-   * Convert from JDBC metadata to Avatica columns.
-   */
-  protected static List<ColumnMetaData>
-  columns(ResultSetMetaData metaData) throws SQLException {
-    if (metaData == null) {
-      return Collections.emptyList();
-    }
-    final List<ColumnMetaData> columns = new ArrayList<>();
-    for (int i = 1; i <= metaData.getColumnCount(); i++) {
-      final SqlType sqlType = SqlType.valueOf(metaData.getColumnType(i));
-      final ColumnMetaData.Rep rep = ColumnMetaData.Rep.of(sqlType.internal);
-      ColumnMetaData.AvaticaType t =
-          ColumnMetaData.scalar(metaData.getColumnType(i),
-              metaData.getColumnTypeName(i), rep);
-      ColumnMetaData md =
-          new ColumnMetaData(i - 1, metaData.isAutoIncrement(i),
-              metaData.isCaseSensitive(i), metaData.isSearchable(i),
-              metaData.isCurrency(i), metaData.isNullable(i),
-              metaData.isSigned(i), metaData.getColumnDisplaySize(i),
-              metaData.getColumnLabel(i), metaData.getColumnName(i),
-              metaData.getSchemaName(i), metaData.getPrecision(i),
-              metaData.getScale(i), metaData.getTableName(i),
-              metaData.getCatalogName(i), t, metaData.isReadOnly(i),
-              metaData.isWritable(i), metaData.isDefinitelyWritable(i),
-              metaData.getColumnClassName(i));
-      columns.add(md);
-    }
-    return columns;
-  }
-
-  /**
-   * Converts from JDBC metadata to AvaticaParameters
-   */
-  protected static List<AvaticaParameter> parameters(ParameterMetaData metaData)
-      throws SQLException {
-    if (metaData == null) {
-      return Collections.emptyList();
-    }
-    final List<AvaticaParameter> params = new ArrayList<>();
-    for (int i = 1; i <= metaData.getParameterCount(); i++) {
-      params.add(
-          new AvaticaParameter(metaData.isSigned(i), metaData.getPrecision(i),
-              metaData.getScale(i), metaData.getParameterType(i),
-              metaData.getParameterTypeName(i),
-              metaData.getParameterClassName(i), "?" + i));
-    }
-    return params;
-  }
-
-  protected static Signature signature(ResultSetMetaData metaData,
-      ParameterMetaData parameterMetaData, String sql) throws  SQLException {
-    return new Signature(columns(metaData), sql, parameters(parameterMetaData),
-        null, CursorFactory.LIST /* LIST because JdbcResultSet#frame */);
-  }
-
-  protected static Signature signature(ResultSetMetaData metaData)
-      throws SQLException {
-    return signature(metaData, null, null);
-  }
 
   /**
    * @param url a database url of the form
