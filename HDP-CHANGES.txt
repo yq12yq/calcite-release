@@ -7,12 +7,50 @@ none
 
 NEW FEATURES
 
-none
+CALCITE-429 Add statistics SPI for lattic optimization algorithm
+CALCITE-705 DML in Avatica, and split Execute out from Fetch request
 
 IMPROVEMENTS
 
-none
+CALCITE-645 Pass server-side exceptions back to the client
+CALCITE-708 Avatica and Calcite to support DatabaseMetaData getTypeInfo
+CALCITE-718 Enable fetch to work for Statement.execute()
+CALCITE-765 RPC server returns JSON data with Content-Type set to text/html
+CALCITE-840 Protobuf transport for Avatica
+CALCITE-866 Create documentation for RPC message format(s)
+CALCITE-903 Enable client to recover from missing server-side state
+CALCITE-912 Pass URL connection properties to avatica server
 
 BUG FIXES
 
-none
+CALCITE-259 Using sub-queries in CASE statement against JDBC tables generates invalid Oracle SQL
+CALCITE-522 In remote JDBC driver, transmit stataic database properties as a map
+CALCITE-585 Avatica JDBC methods should throw SQLFeatureNotSupportedException
+CALCITE-661 Remote fetch in Calcite JDBC driver
+CALCITE-671 ByteString does not deserialize properly as a FetchRequest parameterValue
+CALCITE-677 RemoteDriverTest.testTypeHandling fails east of Greenwich
+CALCITE-687 Make RemoteDriverTest thread-safe
+CALCITE-699 In Avatica, synchronize access to Calendar
+CALCITE-712 Avatica statment execute return all resultset instead of MaxRows from setMaxRows
+CALCITE-717 Compare BINARY and VARBINARY on unsigned byte values
+CALCITE-728 Test suite hangs on Windows
+CALCITE-730 ClassCastException in table from CloneSchema
+CALCITE-741 Dependencies should not be empty
+CALCITE-780 HTTP error 413 when sending a long string to the Avatica server
+CALCITE-789 MetaImpl.MetaCatalog should expose TABLE_CAT instead of TABLE_CATALOG
+CALCITE-795 Loss of precision when sending a decimal number via the remote JSON service
+CALCITE-813 Upgrade updateCount, maxRows from int to long
+CALCITE-825 Allow user to specify sort order of an ArrayTable
+CALCITE-843 AvaticaConnection.getAutoCommit throws NullPointerException
+CALCITE-865 NullPointerException in getTables with PostgreSQL
+CALCITE-871 JdbcResultSet returns incomplete Frame with "default" statement ID
+CALCITE-905 getTables returns empty result in JdbcMeta
+CALCITE-906 Avatica JDbcMeta statement IDs are not unique
+CALCITE-908 Bump protobuf dependency to protobuf-3.0.0-beta-1
+CALCITE-910 Improve handling of ARRAY, MULTISET, STRUCT types
+CALCITE-913 Avatica: transport of array fields fails
+CALCITE-914 Missing JsonSubType for ExecuteResponse
+CALCITE-919 ArithmeticException when querying against decimal field
+CALCITE-921 ClassCastException byte[] to String with protobuf
+CALCITE-927 ColumnsRequest Service call doesn't "fix" ResultSetResponse
+CALCITE-951 Print the server-side stack in the local exception
