@@ -54,3 +54,4 @@ CALCITE-919 ArithmeticException when querying against decimal field
 CALCITE-921 ClassCastException byte[] to String with protobuf
 CALCITE-927 ColumnsRequest Service call doesn't "fix" ResultSetResponse
 CALCITE-951 Print the server-side stack in the local exception
+CALCITE-962 Server-side exception (stack trace) not propagated in JdbcMeta.propagate
