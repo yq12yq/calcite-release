@@ -20,6 +20,7 @@ CALCITE-840 Protobuf transport for Avatica
 CALCITE-866 Create documentation for RPC message format(s)
 CALCITE-903 Enable client to recover from missing server-side state
 CALCITE-912 Pass URL connection properties to avatica server
+CALCITE-989 Provide generic server metadata in responses
 
 BUG FIXES
 
