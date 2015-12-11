@@ -119,8 +119,15 @@ public class JsonHandlerTest {
       return null;
     }
 
-    @Override
-    public void setRpcMetadata(RpcMetadataResponse metadata) {}
+    @Override public void setRpcMetadata(RpcMetadataResponse metadata) {}
+
+    @Override public CommitResponse apply(CommitRequest request) {
+      return null;
+    }
+
+    @Override public RollbackResponse apply(RollbackRequest request) {
+      return null;
+    }
   }
 
   /**
