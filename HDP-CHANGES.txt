@@ -16,6 +16,7 @@ CALCITE-645 Pass server-side exceptions back to the client
 CALCITE-708 Avatica and Calcite to support DatabaseMetaData getTypeInfo
 CALCITE-718 Enable fetch to work for Statement.execute()
 CALCITE-765 RPC server returns JSON data with Content-Type set to text/html
+CALCITE-767 Commit functionality not exposed by the RPC server
 CALCITE-840 Protobuf transport for Avatica
 CALCITE-866 Create documentation for RPC message format(s)
 CALCITE-903 Enable client to recover from missing server-side state
