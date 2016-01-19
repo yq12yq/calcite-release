@@ -262,18 +262,20 @@ public class RemoteMetaTest {
   }
 
   @Test public void testRemoteStatementInsert() throws Exception {
-    System.out.println(url);
-    AvaticaConnection conn = (AvaticaConnection) DriverManager.getConnection(url);
-    Statement statement = conn.createStatement();
-    int status = statement.executeUpdate(
-        "create table if not exists "
-        + "TEST_TABLE2 (id int not null, msg varchar(255) not null)");
-    assertEquals(status, 0);
+    ConnectionSpec.getDatabaseLock().lock();
+    try (AvaticaConnection conn = (AvaticaConnection) DriverManager.getConnection(url);
+        Statement statement = conn.createStatement()) {
+      int status = statement.executeUpdate(
+          "create table if not exists "
+          + "TEST_TABLE2 (id int not null, msg varchar(255) not null)");
+      assertEquals(status, 0);
 
-    statement = conn.createStatement();
-    status = statement.executeUpdate("insert into TEST_TABLE2 values ("
-        + "'" + RANDOM.nextInt(Integer.MAX_VALUE) + "', '" + UUID.randomUUID() + "')");
-    assertEquals(status, 1);
+      status = statement.executeUpdate("insert into TEST_TABLE2 values ("
+          + "'" + RANDOM.nextInt(Integer.MAX_VALUE) + "', '" + UUID.randomUUID() + "')");
+      assertEquals(status, 1);
+    } finally {
+      ConnectionSpec.getDatabaseLock().unlock();
+    }
   }
 
   @Test public void testBigints() throws Exception {
