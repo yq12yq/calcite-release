@@ -356,7 +356,7 @@ limitations under the License.
               <goal>process</goal>
             </goals>
             <configuration>
-              <runOnlyAtExecutionRoot>true</runOnlyAtExecutionRoot>
+              <runOnlyAtExecutionRoot>false</runOnlyAtExecutionRoot>
               <resourceBundles>
                 <resourceBundle>org.apache:apache-jar-resource-bundle:1.4</resourceBundle>
               </resourceBundles>
