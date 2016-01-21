@@ -261,6 +261,7 @@ public class RemoteMetaTest {
     }
   }
 
+  @Ignore("BUG-51178 Sporadically failing in Jenkins")
   @Test public void testRemoteStatementInsert() throws Exception {
     ConnectionSpec.getDatabaseLock().lock();
     try (AvaticaConnection conn = (AvaticaConnection) DriverManager.getConnection(url);
