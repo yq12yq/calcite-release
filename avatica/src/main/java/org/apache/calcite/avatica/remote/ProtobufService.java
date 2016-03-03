@@ -111,6 +111,14 @@ public abstract class ProtobufService extends AbstractService {
     return (RollbackResponse) _apply(request);
   }
 
+  @Override public ExecuteBatchResponse apply(PrepareAndExecuteBatchRequest request) {
+    return (ExecuteBatchResponse) _apply(request);
+  }
+
+  @Override public ExecuteBatchResponse apply(ExecuteBatchRequest request) {
+    return (ExecuteBatchResponse) _apply(request);
+  }
+
   /**
    * Determines whether the given message has the field, denoted by the provided number, set.
    *
