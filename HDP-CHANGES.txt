@@ -62,3 +62,4 @@ CALCITE-984 NPE in ErrorResponse construction
 HORTONWORKS CHANGES
 
 BUG-51178 RemoteMetaTest#testRemoteStatementInsert is failing
+CALCITE-1156 Increase jetty version to 9.2.15.v20160210
