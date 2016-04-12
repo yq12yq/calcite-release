@@ -18,7 +18,7 @@ package org.apache.calcite.jdbc;
 
 import org.apache.calcite.adapter.java.JavaTypeFactory;
 import org.apache.calcite.avatica.AvaticaConnection;
-import org.apache.calcite.avatica.AvaticaDatabaseMetaData;
+import org.apache.calcite.avatica.AvaticaDatabaseMetaDataImpl;
 import org.apache.calcite.avatica.AvaticaFactory;
 import org.apache.calcite.avatica.AvaticaPreparedStatement;
 import org.apache.calcite.avatica.AvaticaResultSetMetaData;
@@ -256,7 +256,7 @@ public class CalciteJdbc41Factory extends CalciteFactory {
 
   /** Implementation of database metadata for JDBC 4.1. */
   private static class CalciteJdbc41DatabaseMetaData
-      extends AvaticaDatabaseMetaData {
+      extends AvaticaDatabaseMetaDataImpl {
     CalciteJdbc41DatabaseMetaData(CalciteConnectionImpl connection) {
       super(connection);
     }

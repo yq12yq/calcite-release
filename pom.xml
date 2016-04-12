@@ -50,6 +50,7 @@ limitations under the License.
     <top.dir>${project.basedir}</top.dir>
     <version.major>1</version.major>
     <version.minor>2</version.minor>
+    <avatica.version>1.7.2-SNAPSHOT</avatica.version>
   </properties>
 
   <issueManagement>
@@ -73,8 +74,6 @@ limitations under the License.
    </distributionManagement>
 
   <modules>
-    <module>avatica</module>
-    <module>avatica-server</module>
     <module>core</module>
     <module>example</module>
     <module>linq4j</module>
@@ -94,20 +93,20 @@ limitations under the License.
     <dependencies>
       <!-- Sorted by groupId, artifactId; calcite dependencies first. -->
       <dependency>
-        <groupId>org.apache.calcite</groupId>
-        <artifactId>calcite-avatica</artifactId>
-        <version>1.2.0-incubating</version>
+        <groupId>org.apache.calcite.avatica</groupId>
+        <artifactId>avatica</artifactId>
+        <version>${avatica.version}</version>
       </dependency>
       <dependency>
-        <groupId>org.apache.calcite</groupId>
-        <artifactId>calcite-avatica</artifactId>
-        <version>1.2.0-incubating</version>
+        <groupId>org.apache.calcite.avatica</groupId>
+        <artifactId>avatica</artifactId>
+        <version>${avatica.version}</version>
         <type>test-jar</type>
       </dependency>
       <dependency>
-        <groupId>org.apache.calcite</groupId>
-        <artifactId>calcite-avatica-server</artifactId>
-        <version>1.2.0-incubating</version>
+        <groupId>org.apache.calcite.avatica</groupId>
+        <artifactId>avatica-server</artifactId>
+        <version>${avatica.version}</version>
       </dependency>
       <dependency>
         <groupId>org.apache.calcite</groupId>

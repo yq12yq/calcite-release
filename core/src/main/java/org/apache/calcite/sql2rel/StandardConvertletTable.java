@@ -16,7 +16,6 @@
  */
 package org.apache.calcite.sql2rel;
 
-import org.apache.calcite.avatica.util.DateTimeUtils;
 import org.apache.calcite.avatica.util.TimeUnit;
 import org.apache.calcite.avatica.util.TimeUnitRange;
 import org.apache.calcite.plan.RelOptUtil;
@@ -411,8 +410,7 @@ public class StandardConvertletTable extends ReflectiveConvertletTable {
         RexLiteral castedInterval =
             cx.getRexBuilder().makeIntervalLiteral(
                 sourceValue.multiply(
-                    BigDecimal.valueOf(
-                        intervalQualifier.getStartUnit().multiplier),
+                        intervalQualifier.getStartUnit().multiplier,
                     MathContext.UNLIMITED),
                 intervalQualifier);
         return castToValidatedType(cx, call, castedInterval);
@@ -461,7 +459,7 @@ public class StandardConvertletTable extends ReflectiveConvertletTable {
       final SqlIntervalLiteral literal = call.operand(0);
       SqlIntervalLiteral.IntervalValue interval =
           (SqlIntervalLiteral.IntervalValue) literal.getValue();
-      long val =
+      BigDecimal val =
           interval.getIntervalQualifier().getStartUnit().multiplier;
       RexNode rexInterval = cx.convertExpression(literal);
 
@@ -476,7 +474,7 @@ public class StandardConvertletTable extends ReflectiveConvertletTable {
               zero);
 
       RexNode pad =
-          rexBuilder.makeExactLiteral(BigDecimal.valueOf(val - 1));
+          rexBuilder.makeExactLiteral(val.subtract(BigDecimal.ONE));
       RexNode cast = rexBuilder.makeReinterpretCast(
           rexInterval.getType(), pad, rexBuilder.makeLiteral(false));
       SqlOperator op =
@@ -492,7 +490,7 @@ public class StandardConvertletTable extends ReflectiveConvertletTable {
               cond, sum, rexInterval);
 
       RexNode factor =
-          rexBuilder.makeExactLiteral(BigDecimal.valueOf(val));
+          rexBuilder.makeExactLiteral(val);
       RexNode div =
           rexBuilder.makeCall(
               SqlStdOperatorTable.DIVIDE_INTEGER,
@@ -542,7 +540,7 @@ public class StandardConvertletTable extends ReflectiveConvertletTable {
       case INTERVAL_DAY_TIME:
         break;
       case TIMESTAMP:
-        res = divide(rexBuilder, res, DateTimeUtils.MILLIS_PER_DAY);
+        res = divide(rexBuilder, res, TimeUnit.DAY.multiplier);
         // fall through
       case DATE:
         return rexBuilder.makeCall(resType, SqlStdOperatorTable.EXTRACT_DATE,
@@ -582,16 +580,16 @@ public class StandardConvertletTable extends ReflectiveConvertletTable {
             ImmutableList.of(rexBuilder.makeFlag(TimeUnitRange.MONTH), x));
     res = rexBuilder.makeCall(SqlStdOperatorTable.MINUS, res,
         rexBuilder.makeExactLiteral(BigDecimal.ONE));
-    res = divide(rexBuilder, res, 3);
+    res = divide(rexBuilder, res, TimeUnit.QUARTER.multiplier);
     res = rexBuilder.makeCall(SqlStdOperatorTable.PLUS, res,
         rexBuilder.makeExactLiteral(BigDecimal.ONE));
     return res;
   }
 
-  private static long getFactor(TimeUnit unit) {
+  private static BigDecimal getFactor(TimeUnit unit) {
     switch (unit) {
     case DAY:
-      return 1;
+      return BigDecimal.ONE;
     case HOUR:
       return TimeUnit.DAY.multiplier;
     case MINUTE:
@@ -599,7 +597,7 @@ public class StandardConvertletTable extends ReflectiveConvertletTable {
     case SECOND:
       return TimeUnit.MINUTE.multiplier;
     case YEAR:
-      return 1;
+      return BigDecimal.ONE;
     case MONTH:
       return TimeUnit.YEAR.multiplier;
     default:
@@ -608,20 +606,33 @@ public class StandardConvertletTable extends ReflectiveConvertletTable {
   }
 
   private RexNode mod(RexBuilder rexBuilder, RelDataType resType, RexNode res,
-      long val) {
-    if (val == 1L) {
+      BigDecimal val) {
+    if (val.equals(BigDecimal.ONE)) {
       return res;
     }
     return rexBuilder.makeCall(SqlStdOperatorTable.MOD, res,
-        rexBuilder.makeExactLiteral(BigDecimal.valueOf(val), resType));
+        rexBuilder.makeExactLiteral(val, resType));
   }
 
-  private RexNode divide(RexBuilder rexBuilder, RexNode res, long val) {
-    if (val == 1L) {
+  private RexNode divide(RexBuilder rexBuilder, RexNode res, BigDecimal val) {
+    if (val.equals(BigDecimal.ONE)) {
       return res;
     }
+    // If val is between 0 and 1, rather than divide by val, multiply by its
+    // reciprocal. For example, rather than divide by 0.001 multiply by 1000.
+    if (val.compareTo(BigDecimal.ONE) < 0
+        && val.signum() == 1) {
+      try {
+        final BigDecimal reciprocal =
+            BigDecimal.ONE.divide(val, BigDecimal.ROUND_UNNECESSARY);
+        return rexBuilder.makeCall(SqlStdOperatorTable.MULTIPLY, res,
+            rexBuilder.makeExactLiteral(reciprocal));
+      } catch (ArithmeticException e) {
+        // ignore - reciprocal is not an integer
+      }
+    }
     return rexBuilder.makeCall(SqlStdOperatorTable.DIVIDE_INTEGER, res,
-        rexBuilder.makeExactLiteral(BigDecimal.valueOf(val)));
+        rexBuilder.makeExactLiteral(val));
   }
 
   public RexNode convertDatetimeMinus(
