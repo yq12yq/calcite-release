@@ -50,7 +50,7 @@ limitations under the License.
     <top.dir>${project.basedir}</top.dir>
     <version.major>1</version.major>
     <version.minor>2</version.minor>
-    <avatica.version>1.7.2-SNAPSHOT</avatica.version>
+    <avatica.version>1.8.0</avatica.version>
   </properties>
 
   <issueManagement>
