@@ -17,6 +17,8 @@
 package org.apache.calcite.config;
 
 import org.apache.calcite.avatica.ConnectionProperty;
+import org.apache.calcite.avatica.util.Casing;
+import org.apache.calcite.avatica.util.Quoting;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -47,15 +49,15 @@ public enum CalciteConnectionProperty implements ConnectionProperty {
 
   /** How identifiers are quoted.
    *  If not specified, value from {@link #LEX} is used. */
-  QUOTING("quoting", Type.ENUM, null, false),
+  QUOTING("quoting", Type.ENUM, null, false, Quoting.class),
 
   /** How identifiers are stored if they are quoted.
    *  If not specified, value from {@link #LEX} is used. */
-  QUOTED_CASING("quotedCasing", Type.ENUM, null, false),
+  QUOTED_CASING("quotedCasing", Type.ENUM, null, false, Casing.class),
 
   /** How identifiers are stored if they are not quoted.
    *  If not specified, value from {@link #LEX} is used. */
-  UNQUOTED_CASING("unquotedCasing", Type.ENUM, null, false),
+  UNQUOTED_CASING("unquotedCasing", Type.ENUM, null, false, Casing.class),
 
   /** Whether identifiers are matched case-sensitively.
    *  If not specified, value from {@link #LEX} is used. */
@@ -85,6 +87,7 @@ public enum CalciteConnectionProperty implements ConnectionProperty {
   private final Type type;
   private final Object defaultValue;
   private final boolean required;
+  private final Class valueClass;
 
   private static final Map<String, CalciteConnectionProperty> NAME_TO_PROPS;
 
@@ -98,11 +101,19 @@ public enum CalciteConnectionProperty implements ConnectionProperty {
 
   CalciteConnectionProperty(String camelName, Type type, Object defaultValue,
       boolean required) {
+    this(camelName, type, defaultValue, required, null);
+  }
+
+  CalciteConnectionProperty(String camelName, Type type, Object defaultValue,
+      boolean required, Class valueClass) {
     this.camelName = camelName;
     this.type = type;
     this.defaultValue = defaultValue;
     this.required = required;
-    assert defaultValue == null || type.valid(defaultValue);
+    this.valueClass = type.deduceValueClass(defaultValue, valueClass);
+    if (!type.valid(defaultValue, this.valueClass)) {
+      throw new AssertionError(camelName);
+    }
   }
 
   public String camelName() {
@@ -115,6 +126,10 @@ public enum CalciteConnectionProperty implements ConnectionProperty {
 
   public Type type() {
     return type;
+  }
+
+  public Class valueClass() {
+    return valueClass;
   }
 
   public boolean required() {
