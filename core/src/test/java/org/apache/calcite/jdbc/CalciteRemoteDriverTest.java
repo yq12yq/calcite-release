@@ -38,6 +38,7 @@ import org.hamcrest.CoreMatchers;
 
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import java.io.ByteArrayOutputStream;
@@ -80,6 +81,7 @@ import static org.junit.Assert.assertThat;
 /**
  * Test for Calcite's remote JDBC driver.
  */
+@Ignore("[BUG-86816] CalciteRemoteDriverTest occasionally fails")
 public class CalciteRemoteDriverTest {
   public static final String LJS = Factory2.class.getName();
 
