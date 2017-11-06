@@ -2288,7 +2288,8 @@ public class SqlToRelConverter {
       SqlCall call) {
     final SqlOperator operator = call.getOperator();
     if (operator == SqlStdOperatorTable.TABLESAMPLE) {
-      final String sampleName = (String) SqlLiteral.value(call.operand(0));
+      final String sampleName =
+          SqlLiteral.unchain(call.operand(0)).getValueAs(String.class);
       datasetStack.push(sampleName);
       SqlCall cursorCall = call.operand(1);
       SqlNode query = cursorCall.operand(0);
