@@ -1404,7 +1404,7 @@ public class DruidQuery extends AbstractRelNode implements BindableRel {
         // case we have count(column) push it as count(*) where column is not null
         final DruidJsonFilter matchNulls;
         if (fieldName == null) {
-          matchNulls = new DruidJsonFilter.JsonExpressionFilter(aggExpression + " == null");
+          matchNulls = new DruidJsonFilter.JsonExpressionFilter("isnull(" + aggExpression + ")");
         } else {
           matchNulls = DruidJsonFilter.getSelectorFilter(fieldName, null, null);
         }
