@@ -321,7 +321,7 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
     return root;
   }
 
-  public ImmutableList<RelOptMaterialization> getMaterializations() {
+  @Override public List<RelOptMaterialization> getMaterializations() {
     return ImmutableList.copyOf(materializations);
   }
 
